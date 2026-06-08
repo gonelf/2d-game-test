@@ -262,27 +262,12 @@ class EditorScene extends Phaser.Scene {
   _setupCamera(SIDEBAR_W) {
     const mapW = WORLD_W * TILE;
     const mapH = WORLD_H * TILE;
-    const W = this.scale.width;
-    const H = this.scale.height;
 
     this.cameras.main.setBounds(0, 0, mapW, mapH);
 
-    // Fit the entire map in the area to the right of the sidebar
-    const availW = W - SIDEBAR_W;
-    const zoomX = availW / mapW;
-    const zoomY = H / mapH;
-    const initZoom = Math.min(zoomX, zoomY, 1);
-    this.cameras.main.setZoom(initZoom);
-
-    // Centre the map in the available area
-    const visW = availW / initZoom;
-    const visH = H / initZoom;
-    const scrollX = -(visW - mapW) / 2;
-    const scrollY = -(visH - mapH) / 2;
-    this.cameras.main.setScroll(
-      Math.max(0, scrollX),
-      Math.max(0, scrollY)
-    );
+    // Start at zoom 1.5 so tiles are large enough to click (~48px each)
+    this.cameras.main.setZoom(1.5);
+    this.cameras.main.centerOn(mapW / 2, mapH / 2);
 
     this._panKeys = this.input.keyboard.addKeys({
       up:    Phaser.Input.Keyboard.KeyCodes.W,
