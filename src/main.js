@@ -3,7 +3,7 @@ const config = {
   width: 1024,
   height: 576,
   backgroundColor: '#000000',
-  scene: [GameScene, UIScene],
+  scene: [BootScene, GameScene, UIScene, EditorScene],
   physics: { default: 'arcade' },
   parent: document.body,
   scale: {
