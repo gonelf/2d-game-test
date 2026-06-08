@@ -39,6 +39,13 @@ class GameScene extends Phaser.Scene {
     this.spaceKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
     this.spaceKey.on('down', () => this._toggleMerge());
 
+    // ── Editor key ────────────────────────────────────────────────────────────
+    this.input.keyboard.addKey('E').on('down', () => {
+      this.scene.pause();
+      this.scene.pause('UIScene');
+      this.scene.launch('EditorScene');
+    });
+
     // ── Cameras — no startFollow; positions managed manually each frame ───────
     this.cameras.main
       .setViewport(0, 0, W / 2, H)
