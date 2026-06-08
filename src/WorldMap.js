@@ -59,11 +59,14 @@ class WorldMap {
     for (let y = 0; y < WORLD_H; y++) {
       for (let x = 0; x < WORLD_W; x++) {
         const type = this.tiles[y][x];
-        gfx.fillStyle(TILE_COLORS[type], 1);
+        // GAP tiles look like bridge in the base texture; gapGfx overlays
+        // water on top in split mode, hiding the bridge until views merge.
+        const drawColor = type === T.GAP ? TILE_COLORS[T.BRIDGE] : TILE_COLORS[type];
+        gfx.fillStyle(drawColor, 1);
         gfx.fillRect(x * TILE, y * TILE, TILE, TILE);
 
         // Subtle grid lines on passable tiles
-        if (type === T.GRASS || type === T.PATH || type === T.SAND) {
+        if (type === T.GRASS || type === T.PATH || type === T.SAND || type === T.GAP) {
           gfx.lineStyle(1, 0x000000, 0.08);
           gfx.strokeRect(x * TILE, y * TILE, TILE, TILE);
         }
