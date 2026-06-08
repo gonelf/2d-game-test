@@ -90,7 +90,7 @@ class EditorScene extends Phaser.Scene {
     this._buildToolButtons(SB, DEPTH);
     this._buildActionButtons(SB, DEPTH);
 
-    this.add.text(SB / 2, H - 14, 'WASD/MMB pan · scroll zoom · Ctrl+Z undo', {
+    this.add.text(SB / 2, H - 14, 'WASD/MMB pan · 2-finger scroll · pinch zoom · Ctrl+Z', {
       fontSize: '8px', fontFamily: 'monospace', color: '#8888aa',
       wordWrap: { width: SB - 10 }, align: 'center',
     }).setOrigin(0.5, 1).setScrollFactor(0).setDepth(DEPTH + 1);
@@ -270,20 +270,40 @@ class EditorScene extends Phaser.Scene {
   // ── Input ────────────────────────────────────────────────────────────────────
 
   _setupInput() {
-    // ── Mouse wheel: cursor-centred zoom ──────────────────────────────────────
-    this.input.on('wheel', (ptr, _objs, _dx, dy) => {
-      const cam     = this.cameras.main;
-      const oldZoom = cam.zoom;
-      const newZoom = Phaser.Math.Clamp(oldZoom * (dy > 0 ? 0.9 : 1.1), 0.25, 4);
+    // Prevent browser pinch-zoom and page scroll while editor is open
+    this._preventWheel = (e) => e.preventDefault();
+    this.game.canvas.addEventListener('wheel', this._preventWheel, { passive: false });
 
-      // World point currently under cursor
-      const wp = cam.getWorldPoint(ptr.x, ptr.y);
+    // ── Mouse wheel / trackpad ────────────────────────────────────────────────
+    this.input.on('wheel', (ptr, _objs, dx, dy) => {
+      const cam = this.cameras.main;
+      const ev  = ptr.event;
 
-      cam.setZoom(newZoom);
+      // Pinch gesture: browser sets ctrlKey=true for trackpad pinch on all platforms
+      if (ev?.ctrlKey) {
+        const newZoom = Phaser.Math.Clamp(cam.zoom * Math.pow(0.99, dy), 0.25, 4);
+        const wp = cam.getWorldPoint(ptr.x, ptr.y);
+        cam.setZoom(newZoom);
+        cam.scrollX = wp.x - ptr.x / newZoom;
+        cam.scrollY = wp.y - ptr.y / newZoom;
+        return;
+      }
 
-      // Reposition so wp stays under cursor
-      cam.scrollX = wp.x - ptr.x / newZoom;
-      cam.scrollY = wp.y - ptr.y / newZoom;
+      // Mouse scroll wheel: line-mode (Firefox) or large pixel delta (Windows)
+      const isMouseWheel = ev && (ev.deltaMode === 1 || (ev.deltaMode === 0 && Math.abs(dy) > 50));
+      if (isMouseWheel) {
+        const newZoom = Phaser.Math.Clamp(cam.zoom * (dy > 0 ? 0.9 : 1.1), 0.25, 4);
+        const wp = cam.getWorldPoint(ptr.x, ptr.y);
+        cam.setZoom(newZoom);
+        cam.scrollX = wp.x - ptr.x / newZoom;
+        cam.scrollY = wp.y - ptr.y / newZoom;
+        return;
+      }
+
+      // Two-finger scroll (trackpad): pan the map
+      const scale = ev?.deltaMode === 1 ? 18 : 1;
+      cam.scrollX += (dx * scale) / cam.zoom;
+      cam.scrollY += (dy * scale) / cam.zoom;
     });
 
     // ── Pointer down ──────────────────────────────────────────────────────────
@@ -482,6 +502,8 @@ class EditorScene extends Phaser.Scene {
   _back() {
     this.worldMap.reloadMap(this.mapData);
     this.worldMap.saveMap();
+
+    this.game.canvas.removeEventListener('wheel', this._preventWheel);
 
     this.layer.destroy();
     this.editorTilemap.destroy();
