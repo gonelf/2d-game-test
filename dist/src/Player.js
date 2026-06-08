@@ -1,39 +1,24 @@
 class Player {
   constructor(scene, x, y, config) {
-    this.scene = scene;
-    this.config = config; // { color, keys, label }
-    this.speed = 120;
+    this.scene  = scene;
+    this.config = config;
+    this.speed  = 120;
+    this.x      = x;
+    this.y      = y;
+    this._dir   = 'down';
 
-    // Graphics-based sprite (no texture assets needed)
-    this.gfx = scene.add.graphics().setDepth(10);
-    this._draw();
-
-    // Position in world pixels (centre of player)
-    this.x = x;
-    this.y = y;
-    this.gfx.setPosition(x, y);
+    // Sprite uses the procedural 'character' atlas; tinted per player colour
+    this.sprite = scene.add.sprite(x, y, 'character', 0)
+      .setDepth(10)
+      .setTint(config.color);
 
     // Label above player
-    this.label = scene.add.text(x, y - 24, config.label, {
+    this.label = scene.add.text(x, y - 20, config.label, {
       fontSize: '12px', fontFamily: 'monospace', color: '#fff',
       stroke: '#000', strokeThickness: 3,
     }).setOrigin(0.5, 1).setDepth(11);
-  }
 
-  _draw() {
-    const { color } = this.config;
-    const g = this.gfx;
-    g.clear();
-    // Body
-    g.fillStyle(color, 1);
-    g.fillRect(-10, -10, 20, 20);
-    // Eyes
-    g.fillStyle(0xffffff, 1);
-    g.fillRect(-6, -6, 4, 4);
-    g.fillRect(2, -6, 4, 4);
-    // Outline
-    g.lineStyle(2, 0x000000, 0.8);
-    g.strokeRect(-10, -10, 20, 20);
+    this.sprite.play('walk-down');
   }
 
   update(cursors, worldMap, merged) {
@@ -50,24 +35,55 @@ class Player {
     const nx = this.x + dx * this.speed * dt;
     const ny = this.y + dy * this.speed * dt;
 
-    // Collision: check corners of player bounding box (20×20)
     const r = 9;
-    const canMoveX = worldMap.isWalkable(nx + r * Math.sign(dx || 1), this.y, merged) &&
-                     worldMap.isWalkable(nx + r * Math.sign(dx || 1), this.y + r, merged) &&
-                     worldMap.isWalkable(nx + r * Math.sign(dx || 1), this.y - r, merged);
-    const canMoveY = worldMap.isWalkable(this.x, ny + r * Math.sign(dy || 1), merged) &&
-                     worldMap.isWalkable(this.x + r, ny + r * Math.sign(dy || 1), merged) &&
-                     worldMap.isWalkable(this.x - r, ny + r * Math.sign(dy || 1), merged);
+    const canMoveX = worldMap.isWalkable(nx + r * Math.sign(dx || 1), this.y,     merged) &&
+                     worldMap.isWalkable(nx + r * Math.sign(dx || 1), this.y + r,  merged) &&
+                     worldMap.isWalkable(nx + r * Math.sign(dx || 1), this.y - r,  merged);
+    const canMoveY = worldMap.isWalkable(this.x,     ny + r * Math.sign(dy || 1), merged) &&
+                     worldMap.isWalkable(this.x + r,  ny + r * Math.sign(dy || 1), merged) &&
+                     worldMap.isWalkable(this.x - r,  ny + r * Math.sign(dy || 1), merged);
 
     if (dx !== 0 && canMoveX) this.x = nx;
     if (dy !== 0 && canMoveY) this.y = ny;
 
-    this.gfx.setPosition(this.x, this.y);
-    this.label.setPosition(this.x, this.y - 14);
+    this._updateAnim(dx, dy);
+
+    this.sprite.setPosition(this.x, this.y);
+    this.label.setPosition(this.x, this.y - 20);
+  }
+
+  _updateAnim(dx, dy) {
+    const moving = dx !== 0 || dy !== 0;
+
+    if (!moving) {
+      if (this.sprite.anims.isPlaying) {
+        this.sprite.anims.stop();
+        // Show idle frame 0 of current direction
+        this.sprite.setFrame(this._dirRow() * 4);
+      }
+      return;
+    }
+
+    // Dominant axis determines direction
+    let newDir;
+    if (Math.abs(dy) >= Math.abs(dx)) {
+      newDir = dy > 0 ? 'down' : 'up';
+    } else {
+      newDir = dx > 0 ? 'right' : 'left';
+    }
+
+    if (newDir !== this._dir || !this.sprite.anims.isPlaying) {
+      this._dir = newDir;
+      this.sprite.play('walk-' + newDir, true);
+    }
+  }
+
+  _dirRow() {
+    return { down: 0, left: 1, right: 2, up: 3 }[this._dir];
   }
 
   setVisible(v) {
-    this.gfx.setVisible(v);
+    this.sprite.setVisible(v);
     this.label.setVisible(v);
   }
 }
