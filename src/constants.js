@@ -1,6 +1,7 @@
 const TILE = 32;
 const WORLD_W = 60;
 const WORLD_H = 40;
+const TILE_COUNT = 7;
 
 // Tile types
 const T = {

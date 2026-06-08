@@ -67,19 +67,17 @@ class GameScene extends Phaser.Scene {
   // ── Camera filter helpers ───────────────────────────────────────────────────
 
   _setSplitFilters() {
-    // cam1 (id=1) must NOT render P2; cam2 (id=2) must NOT render P1
-    this.p2.gfx.cameraFilter   = this.cameras.main.id;
-    this.p2.label.cameraFilter = this.cameras.main.id;
-    this.p1.gfx.cameraFilter   = this.cam2.id;
-    this.p1.label.cameraFilter = this.cam2.id;
+    this.p2.sprite.cameraFilter = this.cameras.main.id;
+    this.p2.label.cameraFilter  = this.cameras.main.id;
+    this.p1.sprite.cameraFilter = this.cam2.id;
+    this.p1.label.cameraFilter  = this.cam2.id;
   }
 
   _setMergedFilters() {
-    // cam1 is now full-screen; both players should be visible
-    this.p1.gfx.cameraFilter   = 0;
-    this.p1.label.cameraFilter = 0;
-    this.p2.gfx.cameraFilter   = 0;
-    this.p2.label.cameraFilter = 0;
+    this.p1.sprite.cameraFilter = 0;
+    this.p1.label.cameraFilter  = 0;
+    this.p2.sprite.cameraFilter = 0;
+    this.p2.label.cameraFilter  = 0;
   }
 
   // ── Signs ───────────────────────────────────────────────────────────────────

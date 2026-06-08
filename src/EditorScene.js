@@ -10,13 +10,14 @@ class EditorScene extends Phaser.Scene {
 
     this.mapData = this.worldMap.data.map(row => row.slice());
 
-    this.selectedTile = T.GRASS;
-    this.activeTool   = 'paint'; // 'paint' | 'fill' | 'erase'
-    this._isPainting  = false;
-    this._dragStart   = null;   // for middle-mouse pan
-    this._currentStroke = null; // tile changes in current mouse-down drag
-    this._undoStack   = [];     // [ [{tx,ty,oldTile,newTile}, ...], ... ]
-    this._redoStack   = [];
+    this.selectedTile   = T.GRASS;
+    this.activeTool     = 'paint'; // 'paint' | 'fill' | 'erase'
+    this._isPainting    = false;
+    this._dragStart     = null;
+    this._currentStroke = null;
+    this._undoStack     = [];
+    this._redoStack     = [];
+    this._tilesetKey    = 'tiles';
 
     const SIDEBAR_W = 180;
     this.SIDEBAR_W = SIDEBAR_W;
@@ -33,6 +34,7 @@ class EditorScene extends Phaser.Scene {
   // ── Tilemap ──────────────────────────────────────────────────────────────────
 
   _buildTilemap() {
+    const key = this._tilesetKey || 'tiles';
     const renderData = this.mapData.map(row => row.slice());
 
     this.editorTilemap = this.make.tilemap({
@@ -41,7 +43,7 @@ class EditorScene extends Phaser.Scene {
       tileHeight: TILE,
     });
 
-    const tileset = this.editorTilemap.addTilesetImage('tiles', 'tiles', TILE, TILE, 0, 0);
+    const tileset = this.editorTilemap.addTilesetImage('tiles', key, TILE, TILE, 0, 0);
     this.layer = this.editorTilemap.createLayer(0, tileset, 0, 0);
     this.layer.setDepth(0);
   }
@@ -88,6 +90,7 @@ class EditorScene extends Phaser.Scene {
 
     this._buildPalette(SB, DEPTH);
     this._buildToolButtons(SB, DEPTH);
+    this._buildImportButtons(SB, DEPTH);
     this._buildActionButtons(SB, DEPTH);
 
     this.add.text(SB / 2, H - 14, 'WASD/MMB pan · 2-finger scroll · pinch zoom · Ctrl+Z', {
@@ -149,7 +152,8 @@ class EditorScene extends Phaser.Scene {
     const keys  = ['paint', 'fill', 'erase'];
     const BTN_W = SB / 3;
     const BTN_H = 24;
-    const Y     = 240;
+    // Palette: ceil(TILE_COUNT/2) rows × 52px starting at y=38
+    const Y     = 38 + Math.ceil(TILE_COUNT / 2) * 52 + 4;
 
     this._toolBtns = {};
 
@@ -186,6 +190,42 @@ class EditorScene extends Phaser.Scene {
       btn.bg.fillStyle(active ? 0x4a4a8a : 0x2a2a4a, 1);
       btn.bg.fillRect(btn.x + 2, btn.y, btn.w - 4, btn.h);
       btn.label.setColor(active ? '#ffffff' : '#aaaacc');
+    }
+  }
+
+  _buildImportButtons(SB, DEPTH) {
+    // Positioned just below tool buttons
+    const toolsBottom = 38 + Math.ceil(TILE_COUNT / 2) * 52 + 4 + 24 + 8;
+    const Y0 = toolsBottom + 4;
+
+    // Section label
+    this.add.text(SB / 2, Y0, 'IMPORT', {
+      fontSize: '9px', fontFamily: 'monospace', color: '#8888aa',
+    }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(DEPTH + 1);
+
+    const BTN_H = 24;
+    const GAP   = 4;
+    const imports = [
+      { label: 'Tileset PNG', action: () => this._importTileset() },
+      { label: 'Map JSON',    action: () => this._importMap()     },
+    ];
+
+    let startY = Y0 + 16;
+    for (const imp of imports) {
+      const btnBg = this.add.graphics().setScrollFactor(0).setDepth(DEPTH + 1);
+      btnBg.fillStyle(0x2a3a2a, 1);
+      btnBg.fillRect(8, startY, SB - 16, BTN_H);
+
+      this.add.text(SB / 2, startY + BTN_H / 2, imp.label, {
+        fontSize: '10px', fontFamily: 'monospace', color: '#88cc88',
+      }).setOrigin(0.5, 0.5).setScrollFactor(0).setDepth(DEPTH + 2);
+
+      this.add.zone(8, startY, SB - 16, BTN_H)
+        .setOrigin(0, 0).setScrollFactor(0).setDepth(DEPTH + 3)
+        .setInteractive({ useHandCursor: true })
+        .on('pointerdown', imp.action);
+
+      startY += BTN_H + GAP;
     }
   }
 
@@ -488,9 +528,10 @@ class EditorScene extends Phaser.Scene {
         defaultMap[y][x] = this.worldMap._tileAt(x, y);
       }
     }
-    this.mapData = defaultMap;
-    this._undoStack = [];
-    this._redoStack = [];
+    this.mapData     = defaultMap;
+    this._undoStack  = [];
+    this._redoStack  = [];
+    this._tilesetKey = 'tiles'; // reset tileset too
 
     this.layer.destroy();
     this.editorTilemap.destroy();
@@ -510,6 +551,102 @@ class EditorScene extends Phaser.Scene {
     this.scene.stop('EditorScene');
     this.scene.resume('GameScene');
     this.scene.resume('UIScene');
+  }
+
+  // ── Import helpers ────────────────────────────────────────────────────────────
+
+  _importTileset() {
+    const input = document.createElement('input');
+    input.type  = 'file';
+    input.accept = 'image/png,image/jpeg,image/gif';
+
+    input.onchange = (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+
+      reader.onload = (ev) => {
+        const key = 'custom-tiles';
+        if (this.textures.exists(key)) this.textures.remove(key);
+
+        this.textures.once('addtexture-' + key, () => {
+          this._tilesetKey = key;
+          this._rebuildTilemap();
+          this._showToast('Tileset loaded!');
+        });
+
+        this.textures.addBase64(key, ev.target.result);
+      };
+
+      reader.readAsDataURL(file);
+    };
+
+    input.click();
+  }
+
+  _importMap(jsonText) {
+    const input = document.createElement('input');
+    input.type   = 'file';
+    input.accept = '.json,.tmj';
+
+    input.onchange = (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+
+      reader.onload = (ev) => {
+        try {
+          const parsed = JSON.parse(ev.target.result);
+          this.mapData = this._parseTiledOrRaw(parsed);
+          this._undoStack = [];
+          this._redoStack = [];
+          this._rebuildTilemap();
+          this._showToast('Map imported!');
+        } catch (err) {
+          this._showToast('Invalid JSON');
+        }
+      };
+
+      reader.readAsText(file);
+    };
+
+    input.click();
+  }
+
+  _parseTiledOrRaw(json) {
+    // Our own format: array of arrays
+    if (Array.isArray(json) && Array.isArray(json[0])) {
+      return json.map(row => row.slice());
+    }
+
+    // Tiled JSON format
+    if (json.layers) {
+      const layer = json.layers.find(l => l.type === 'tilelayer' && l.data);
+      if (layer) {
+        const w = layer.width  || WORLD_W;
+        const h = layer.height || WORLD_H;
+        const out = [];
+        for (let y = 0; y < h; y++) {
+          out[y] = [];
+          for (let x = 0; x < w; x++) {
+            // Tiled IDs are 1-based; 0 = empty → map to GRASS
+            const id = (layer.data[y * w + x] || 1) - 1;
+            out[y][x] = Math.min(Math.max(id, 0), TILE_COUNT - 1);
+          }
+        }
+        return out;
+      }
+    }
+
+    throw new Error('Unrecognised map format');
+  }
+
+  _rebuildTilemap() {
+    this.layer.destroy();
+    this.editorTilemap.destroy();
+    this._buildTilemap();
+    this._buildGrid();
+    this.hoverGfx.clear();
   }
 
   _showToast(msg) {
