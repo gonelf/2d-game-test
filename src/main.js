@@ -6,6 +6,7 @@ const config = {
   scene: [BootScene, GameScene, UIScene, EditorScene],
   physics: { default: 'arcade' },
   parent: document.body,
+  resolution: window.devicePixelRatio || 1,
   scale: {
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,
