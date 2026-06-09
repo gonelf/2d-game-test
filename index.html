@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Split World</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #000; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }
+    canvas { display: block; }
+    #ui-overlay {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+    }
+    #merge-hint {
+      position: absolute;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      color: #fff;
+      font-family: monospace;
+      font-size: 14px;
+      background: rgba(0,0,0,0.6);
+      padding: 6px 12px;
+      border-radius: 4px;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <div id="merge-hint">Press <strong>SPACE</strong> to merge views</div>
+  <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js"></script>
+  <script src="src/constants.js"></script>
+  <script src="src/TileAtlas.js"></script>
+  <script src="src/CharacterAtlas.js"></script>
+  <script src="src/BootScene.js"></script>
+  <script src="src/WorldMap.js"></script>
+  <script src="src/Player.js"></script>
+  <script src="src/GameScene.js"></script>
+  <script src="src/EditorScene.js"></script>
+  <script src="src/UIScene.js"></script>
+  <script src="src/main.js"></script>
+</body>
+</html>
