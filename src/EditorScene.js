@@ -22,11 +22,17 @@ class EditorScene extends Phaser.Scene {
     const SIDEBAR_W = 180;
     this.SIDEBAR_W = SIDEBAR_W;
 
+    // World objects first (main camera will render these)
     this._buildTilemap();
     this._buildGrid();
-    this._buildSidebar();
     this._buildHoverRect();
+
+    // Snapshot children before building UI so we can isolate UI objects
+    const preUI = new Set(this.children.list);
+    this._buildSidebar();
     this._buildHUD();
+    this._uiObjs = this.children.list.filter(o => !preUI.has(o));
+
     this._setupCamera(SIDEBAR_W);
     this._setupInput();
   }
@@ -77,7 +83,7 @@ class EditorScene extends Phaser.Scene {
     const SB = this.SIDEBAR_W;
     const DEPTH = 50;
 
-    const bg = this.add.graphics().setScrollFactor(0).setDepth(DEPTH);
+    const bg = this.add.graphics().setDepth(DEPTH);
     bg.fillStyle(0x1a1a2e, 1);
     bg.fillRect(0, 0, SB, H);
     bg.lineStyle(1, 0x3a3a5e, 1);
@@ -86,7 +92,7 @@ class EditorScene extends Phaser.Scene {
     this.add.text(SB / 2, 12, 'MAP EDITOR', {
       fontSize: '12px', fontFamily: 'monospace', color: '#e0e0ff',
       stroke: '#000', strokeThickness: 2,
-    }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(DEPTH + 1);
+    }).setOrigin(0.5, 0).setDepth(DEPTH + 1);
 
     this._buildPalette(SB, DEPTH);
     this._buildToolButtons(SB, DEPTH);
@@ -96,7 +102,7 @@ class EditorScene extends Phaser.Scene {
     this.add.text(SB / 2, H - 14, 'WASD/MMB pan · 2-finger scroll · pinch zoom · Ctrl+Z', {
       fontSize: '8px', fontFamily: 'monospace', color: '#8888aa',
       wordWrap: { width: SB - 10 }, align: 'center',
-    }).setOrigin(0.5, 1).setScrollFactor(0).setDepth(DEPTH + 1);
+    }).setOrigin(0.5, 1).setDepth(DEPTH + 1);
   }
 
   _buildPalette(SB, DEPTH) {
@@ -113,22 +119,21 @@ class EditorScene extends Phaser.Scene {
       const cx  = col * COL_W + COL_W / 2;
       const cy  = START_Y + row * ROW_H + ROW_H / 2;
 
-      const sel = this.add.graphics().setScrollFactor(0).setDepth(DEPTH + 1);
+      const sel = this.add.graphics().setDepth(DEPTH + 1);
       sel.lineStyle(2, 0xffffff, 1);
       sel.strokeRect(col * COL_W + 3, START_Y + row * ROW_H + 3, COL_W - 6, ROW_H - 6);
       sel.setVisible(i === this.selectedTile);
 
       this.add.image(cx, cy - 8, 'tiles', i)
-        .setScrollFactor(0)
         .setDepth(DEPTH + 2)
         .setInteractive({ useHandCursor: true });
 
       this.add.text(cx, cy + 12, TILE_NAMES_LOCAL[i], {
         fontSize: '9px', fontFamily: 'monospace', color: '#cccccc',
-      }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(DEPTH + 2);
+      }).setOrigin(0.5, 0).setDepth(DEPTH + 2);
 
       const zone = this.add.zone(col * COL_W, START_Y + row * ROW_H, COL_W, ROW_H)
-        .setOrigin(0, 0).setScrollFactor(0).setDepth(DEPTH + 3)
+        .setOrigin(0, 0).setDepth(DEPTH + 3)
         .setInteractive({ useHandCursor: true });
 
       const tileIndex = i;
@@ -161,16 +166,16 @@ class EditorScene extends Phaser.Scene {
       const x = i * BTN_W;
       const isActive = keys[i] === this.activeTool;
 
-      const btnBg = this.add.graphics().setScrollFactor(0).setDepth(DEPTH + 1);
+      const btnBg = this.add.graphics().setDepth(DEPTH + 1);
       btnBg.fillStyle(isActive ? 0x4a4a8a : 0x2a2a4a, 1);
       btnBg.fillRect(x + 2, Y, BTN_W - 4, BTN_H);
 
       const label = this.add.text(x + BTN_W / 2, Y + BTN_H / 2, tools[i], {
         fontSize: '10px', fontFamily: 'monospace', color: isActive ? '#ffffff' : '#aaaacc',
-      }).setOrigin(0.5, 0.5).setScrollFactor(0).setDepth(DEPTH + 2);
+      }).setOrigin(0.5, 0.5).setDepth(DEPTH + 2);
 
       const zone = this.add.zone(x, Y, BTN_W, BTN_H)
-        .setOrigin(0, 0).setScrollFactor(0).setDepth(DEPTH + 3)
+        .setOrigin(0, 0).setDepth(DEPTH + 3)
         .setInteractive({ useHandCursor: true });
 
       const toolKey = keys[i];
@@ -201,7 +206,7 @@ class EditorScene extends Phaser.Scene {
     // Section label
     this.add.text(SB / 2, Y0, 'IMPORT', {
       fontSize: '9px', fontFamily: 'monospace', color: '#8888aa',
-    }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(DEPTH + 1);
+    }).setOrigin(0.5, 0).setDepth(DEPTH + 1);
 
     const BTN_H = 24;
     const GAP   = 4;
@@ -212,16 +217,16 @@ class EditorScene extends Phaser.Scene {
 
     let startY = Y0 + 16;
     for (const imp of imports) {
-      const btnBg = this.add.graphics().setScrollFactor(0).setDepth(DEPTH + 1);
+      const btnBg = this.add.graphics().setDepth(DEPTH + 1);
       btnBg.fillStyle(0x2a3a2a, 1);
       btnBg.fillRect(8, startY, SB - 16, BTN_H);
 
       this.add.text(SB / 2, startY + BTN_H / 2, imp.label, {
         fontSize: '10px', fontFamily: 'monospace', color: '#88cc88',
-      }).setOrigin(0.5, 0.5).setScrollFactor(0).setDepth(DEPTH + 2);
+      }).setOrigin(0.5, 0.5).setDepth(DEPTH + 2);
 
       this.add.zone(8, startY, SB - 16, BTN_H)
-        .setOrigin(0, 0).setScrollFactor(0).setDepth(DEPTH + 3)
+        .setOrigin(0, 0).setDepth(DEPTH + 3)
         .setInteractive({ useHandCursor: true })
         .on('pointerdown', imp.action);
 
@@ -243,16 +248,16 @@ class EditorScene extends Phaser.Scene {
     let startY   = H - 90 - totalH;
 
     for (const act of actions) {
-      const btnBg = this.add.graphics().setScrollFactor(0).setDepth(DEPTH + 1);
+      const btnBg = this.add.graphics().setDepth(DEPTH + 1);
       btnBg.fillStyle(act.color, 1);
       btnBg.fillRect(8, startY, SB - 16, BTN_H);
 
       this.add.text(SB / 2, startY + BTN_H / 2, act.label, {
         fontSize: '12px', fontFamily: 'monospace', color: act.textColor,
-      }).setOrigin(0.5, 0.5).setScrollFactor(0).setDepth(DEPTH + 2);
+      }).setOrigin(0.5, 0.5).setDepth(DEPTH + 2);
 
       this.add.zone(8, startY, SB - 16, BTN_H)
-        .setOrigin(0, 0).setScrollFactor(0).setDepth(DEPTH + 3)
+        .setOrigin(0, 0).setDepth(DEPTH + 3)
         .setInteractive({ useHandCursor: true })
         .on('pointerdown', act.action);
 
@@ -286,7 +291,7 @@ class EditorScene extends Phaser.Scene {
       stroke: '#000000', strokeThickness: 2,
       backgroundColor: 'rgba(0,0,0,0.5)',
       padding: { x: 4, y: 2 },
-    }).setOrigin(1, 1).setScrollFactor(0).setDepth(60);
+    }).setOrigin(1, 1).setDepth(60);
   }
 
   // ── Camera ───────────────────────────────────────────────────────────────────
@@ -294,10 +299,20 @@ class EditorScene extends Phaser.Scene {
   _setupCamera(SIDEBAR_W) {
     const mapW = WORLD_W * TILE;
     const mapH = WORLD_H * TILE;
+    const W = this.scale.width;
+    const H = this.scale.height;
 
     this.cameras.main.setBounds(0, 0, mapW, mapH);
     this.cameras.main.setZoom(1.5);
     this.cameras.main.centerOn(mapW / 2, mapH / 2);
+
+    // Dedicated UI camera: fixed zoom=1, no scroll — renders sidebar/HUD at true screen coords
+    this._uiCam = this.cameras.add(0, 0, W, H, false, 'editor-ui');
+    this._uiCam.setZoom(1).setScroll(0, 0);
+
+    // Each camera only sees its own objects
+    this._uiCam.ignore([this.layer, this.gridGfx, this.hoverGfx]);
+    this.cameras.main.ignore(this._uiObjs);
 
     this._panKeys = this.input.keyboard.addKeys({
       up:    Phaser.Input.Keyboard.KeyCodes.W,
@@ -531,12 +546,13 @@ class EditorScene extends Phaser.Scene {
     this.mapData     = defaultMap;
     this._undoStack  = [];
     this._redoStack  = [];
-    this._tilesetKey = 'tiles'; // reset tileset too
+    this._tilesetKey = 'tiles';
 
     this.layer.destroy();
     this.editorTilemap.destroy();
     this._buildTilemap();
     this._buildGrid();
+    if (this._uiCam) this._uiCam.ignore([this.layer, this.gridGfx]);
     this._showToast('Map reset');
   }
 
@@ -545,6 +561,11 @@ class EditorScene extends Phaser.Scene {
     this.worldMap.saveMap();
 
     this.game.canvas.removeEventListener('wheel', this._preventWheel);
+
+    if (this._uiCam) {
+      this.cameras.remove(this._uiCam);
+      this._uiCam = null;
+    }
 
     this.layer.destroy();
     this.editorTilemap.destroy();
@@ -646,6 +667,7 @@ class EditorScene extends Phaser.Scene {
     this.editorTilemap.destroy();
     this._buildTilemap();
     this._buildGrid();
+    if (this._uiCam) this._uiCam.ignore([this.layer, this.gridGfx]);
     this.hoverGfx.clear();
   }
 
@@ -657,7 +679,10 @@ class EditorScene extends Phaser.Scene {
       stroke: '#000', strokeThickness: 3,
       backgroundColor: '#1a1a2e',
       padding: { x: 12, y: 6 },
-    }).setOrigin(0.5, 1).setScrollFactor(0).setDepth(200);
+    }).setOrigin(0.5, 1).setDepth(200);
+
+    // Toast is a UI element — exclude from main (world) camera
+    if (this._uiCam) this.cameras.main.ignore(t);
 
     this.tweens.add({
       targets: t, alpha: 0, duration: 1500, delay: 800,
