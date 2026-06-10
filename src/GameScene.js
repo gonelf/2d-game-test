@@ -29,8 +29,8 @@ class GameScene extends Phaser.Scene {
     const spawnX2 = (WORLD_W / 2 + 8) * TILE;
     const spawnY  = Math.floor(WORLD_H / 2) * TILE;
 
-    this.p1 = new Player(this, spawnX1, spawnY, { color: 0xe74c3c, label: 'P1' });
-    this.p2 = new Player(this, spawnX2, spawnY, { color: 0x3498db, label: 'P2' });
+    this.p1 = new Player(this, spawnX1, spawnY, { color: 0xe74c3c, label: 'P1', id: 'p1' });
+    this.p2 = new Player(this, spawnX2, spawnY, { color: 0x3498db, label: 'P2', id: 'p2' });
 
     // ── Input ─────────────────────────────────────────────────────────────────
     this.keys1 = this.input.keyboard.addKeys({
@@ -67,6 +67,9 @@ class GameScene extends Phaser.Scene {
     this.cam2 = this.cameras.add(W / 2, 0, W / 2, H)
       .setBounds(0, 0, worldW, worldH);
 
+    // Each camera renders only its player's view layer of the world
+    this.worldMap.setCameras(this.cameras.main, this.cam2);
+
     // ── Camera filters: each camera only sees its own player ──────────────────
     this._setSplitFilters();
 
@@ -95,9 +98,8 @@ class GameScene extends Phaser.Scene {
 
     for (const [tx, ty] of spots) {
       if (tx <= 0 || ty <= 0 || tx >= WORLD_W - 1 || ty >= WORLD_H - 1) continue;
-      const t = this.worldMap.data[ty][tx];
       // Skip spots that became unreachable on custom (edited) maps
-      if (t === T.WALL || t === T.WATER) continue;
+      if (!this.worldMap.isTileWalkable(tx, ty, true)) continue;
 
       const x = (tx + 0.5) * TILE;
       const y = (ty + 0.5) * TILE;
@@ -177,15 +179,11 @@ class GameScene extends Phaser.Scene {
 
   // ── Toggle ──────────────────────────────────────────────────────────────────
 
-  _onGapTile(player) {
-    const tx = Math.floor(player.x / TILE);
-    const ty = Math.floor(player.y / TILE);
-    const row = this.worldMap.data[ty];
-    return row !== undefined && row[tx] === T.GAP;
-  }
-
-  _anyPlayerOnGap() {
-    return this._onGapTile(this.p1) || this._onGapTile(this.p2);
+  // A player standing on ground that only exists while merged (gap bridge,
+  // merged-only tiles) would be stranded by a split.
+  _anyPlayerWouldStrand() {
+    return !this.worldMap.isWalkable(this.p1.x, this.p1.y, false, 'p1') ||
+           !this.worldMap.isWalkable(this.p2.x, this.p2.y, false, 'p2');
   }
 
   _toggleMerge() {
@@ -196,10 +194,10 @@ class GameScene extends Phaser.Scene {
       this._flashHint('Not enough merge energy!');
       return;
     }
-    // Splitting would strand anyone standing where the gap reappears
-    if (this.merged && this._anyPlayerOnGap()) {
+    // Splitting would strand anyone standing on merged-only ground
+    if (this.merged && this._anyPlayerWouldStrand()) {
       SFX.denied();
-      this._flashHint('Get off the bridge first!');
+      this._flashHint('Move to solid ground first!');
       return;
     }
 
@@ -252,8 +250,8 @@ class GameScene extends Phaser.Scene {
     // Merge energy: drains while merged, recharges while split
     if (this.merged) {
       this.energy = Math.max(0, this.energy - dt / MERGE_DRAIN_SECS);
-      // Forced split when drained — deferred while someone stands on the gap
-      if (this.energy === 0 && !this._anyPlayerOnGap()) this._toggleMerge();
+      // Forced split when drained — deferred while someone stands on merged-only ground
+      if (this.energy === 0 && !this._anyPlayerWouldStrand()) this._toggleMerge();
     } else {
       this.energy = Math.min(1, this.energy + dt / MERGE_RECHARGE_SECS);
     }

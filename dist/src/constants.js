@@ -3,6 +3,9 @@ const WORLD_W = 60;
 const WORLD_H = 40;
 const TILE_COUNT = 7;
 
+// Sentinel for "no override" cells in the per-view layers (p1 / p2 / merged)
+const NO_TILE = -1;
+
 // Merge-energy tuning: merged mode drains energy, split mode recharges it
 const MERGE_DRAIN_SECS    = 10;   // full bar lasts this long while merged
 const MERGE_RECHARGE_SECS = 5;    // empty -> full while split

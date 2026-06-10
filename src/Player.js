@@ -2,6 +2,7 @@ class Player {
   constructor(scene, x, y, config) {
     this.scene  = scene;
     this.config = config;
+    this.id     = config.id; // 'p1' | 'p2' — selects this player's view layer
     this.speed  = 120;
     this.x      = x;
     this.y      = y;
@@ -37,12 +38,13 @@ class Player {
     const ny = this.y + dy * this.speed * dt;
 
     const r = 9;
-    const canMoveX = worldMap.isWalkable(nx + r * Math.sign(dx || 1), this.y,     merged) &&
-                     worldMap.isWalkable(nx + r * Math.sign(dx || 1), this.y + r,  merged) &&
-                     worldMap.isWalkable(nx + r * Math.sign(dx || 1), this.y - r,  merged);
-    const canMoveY = worldMap.isWalkable(this.x,     ny + r * Math.sign(dy || 1), merged) &&
-                     worldMap.isWalkable(this.x + r,  ny + r * Math.sign(dy || 1), merged) &&
-                     worldMap.isWalkable(this.x - r,  ny + r * Math.sign(dy || 1), merged);
+    const id = this.id;
+    const canMoveX = worldMap.isWalkable(nx + r * Math.sign(dx || 1), this.y,     merged, id) &&
+                     worldMap.isWalkable(nx + r * Math.sign(dx || 1), this.y + r,  merged, id) &&
+                     worldMap.isWalkable(nx + r * Math.sign(dx || 1), this.y - r,  merged, id);
+    const canMoveY = worldMap.isWalkable(this.x,     ny + r * Math.sign(dy || 1), merged, id) &&
+                     worldMap.isWalkable(this.x + r,  ny + r * Math.sign(dy || 1), merged, id) &&
+                     worldMap.isWalkable(this.x - r,  ny + r * Math.sign(dy || 1), merged, id);
 
     if (dx !== 0 && canMoveX) this.x = nx;
     if (dy !== 0 && canMoveY) this.y = ny;

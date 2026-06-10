@@ -1,34 +1,77 @@
-// WorldMap.js — Phaser Tilemap-based world renderer.
+// WorldMap.js — multi-view world renderer.
+// The world is a shared `base` layer plus three override layers: `p1` and `p2`
+// (what each player sees/collides with in split mode) and `merged` (what both
+// see while views are merged). Override cells hold NO_TILE where the base
+// shows through. The legacy GAP tile still means water-when-split /
+// bridge-when-merged on whichever layer it sits.
 class WorldMap {
   constructor(scene) {
-    this.scene = scene;
+    this.scene   = scene;
+    this._merged = false;
+    this._cam1   = null;
+    this._cam2   = null;
 
-    // Load from localStorage or generate default
+    // Load from localStorage (legacy or v2 format) or generate default
     const saved = localStorage.getItem('splitworld-map');
+    let layers = null;
     if (saved) {
       try {
-        this.data = JSON.parse(saved);
+        layers = WorldMap.normalizeLayers(JSON.parse(saved));
       } catch (e) {
-        this.data = this._generateDefault();
+        layers = null;
       }
-    } else {
-      this.data = this._generateDefault();
     }
+    this.layers = layers || this._generateDefault();
 
-    this._buildTilemap();
+    this._buildViews();
+  }
+
+  // ── Layer data helpers ───────────────────────────────────────────────────────
+
+  static emptyOverrides() {
+    const grid = [];
+    for (let y = 0; y < WORLD_H; y++) grid[y] = new Array(WORLD_W).fill(NO_TILE);
+    return grid;
+  }
+
+  /**
+   * Accepts legacy data (plain 2D array) or v2 data ({base, p1, p2, merged})
+   * and returns a complete layers object. Throws on unrecognised input.
+   */
+  static normalizeLayers(json) {
+    if (Array.isArray(json) && Array.isArray(json[0])) {
+      return {
+        base:   json.map(r => r.slice()),
+        p1:     WorldMap.emptyOverrides(),
+        p2:     WorldMap.emptyOverrides(),
+        merged: WorldMap.emptyOverrides(),
+      };
+    }
+    if (json && Array.isArray(json.base) && Array.isArray(json.base[0])) {
+      const grid = (g) => (Array.isArray(g) && Array.isArray(g[0]))
+        ? g.map(r => r.slice())
+        : WorldMap.emptyOverrides();
+      return { base: json.base.map(r => r.slice()), p1: grid(json.p1), p2: grid(json.p2), merged: grid(json.merged) };
+    }
+    throw new Error('Unrecognised map data');
   }
 
   // ── Default map generation ───────────────────────────────────────────────────
 
   _generateDefault() {
-    const map = [];
+    const base = [];
     for (let y = 0; y < WORLD_H; y++) {
-      map[y] = [];
+      base[y] = [];
       for (let x = 0; x < WORLD_W; x++) {
-        map[y][x] = this._tileAt(x, y);
+        base[y][x] = this._tileAt(x, y);
       }
     }
-    return map;
+    return {
+      base,
+      p1:     WorldMap.emptyOverrides(),
+      p2:     WorldMap.emptyOverrides(),
+      merged: WorldMap.emptyOverrides(),
+    };
   }
 
   _tileAt(x, y) {
@@ -58,72 +101,116 @@ class WorldMap {
     return T.GRASS;
   }
 
+  // ── View composition ─────────────────────────────────────────────────────────
+
+  /**
+   * Effective tile id for a view ('p1' | 'p2' | 'merged') at tile coords.
+   */
+  compositeTile(view, tx, ty) {
+    const ov = this.layers[view][ty][tx];
+    return ov !== NO_TILE ? ov : this.layers.base[ty][tx];
+  }
+
+  // GAP renders as water in split views and as a bridge in the merged view
+  _renderId(view, t) {
+    if (t === T.GAP) return view === 'merged' ? T.BRIDGE : T.WATER;
+    return t;
+  }
+
   // ── Tilemap creation ─────────────────────────────────────────────────────────
 
-  _buildTilemap() {
-    // Build render data: GAP → WATER so gaps look like water in gameplay
-    const renderData = [];
+  _buildView(view) {
+    const data = [];
     for (let y = 0; y < WORLD_H; y++) {
-      renderData[y] = [];
+      data[y] = [];
       for (let x = 0; x < WORLD_W; x++) {
-        const t = this.data[y][x];
-        renderData[y][x] = (t === T.GAP) ? T.WATER : t;
+        data[y][x] = this._renderId(view, this.compositeTile(view, x, y));
       }
     }
 
-    this.tilemap = this.scene.make.tilemap({
-      data: renderData,
-      tileWidth: TILE,
-      tileHeight: TILE,
-    });
+    const tilemap = this.scene.make.tilemap({ data, tileWidth: TILE, tileHeight: TILE });
+    const tileset = tilemap.addTilesetImage('tiles', 'tiles', TILE, TILE, 0, 0);
+    const layer   = tilemap.createLayer(0, tileset, 0, 0).setDepth(0);
+    return { tilemap, layer };
+  }
 
-    const tileset = this.tilemap.addTilesetImage('tiles', 'tiles', TILE, TILE, 0, 0);
-    this.layer = this.tilemap.createLayer(0, tileset, 0, 0);
-    this.layer.setDepth(0);
+  _buildViews() {
+    this.views = {
+      p1:     this._buildView('p1'),
+      p2:     this._buildView('p2'),
+      merged: this._buildView('merged'),
+    };
+    this._applyCameraFilters();
+    this._applyVisibility();
+  }
+
+  /**
+   * Register the two split-screen cameras so each one only renders its
+   * player's view layer.
+   */
+  setCameras(cam1, cam2) {
+    this._cam1 = cam1;
+    this._cam2 = cam2;
+    this._applyCameraFilters();
+  }
+
+  _applyCameraFilters() {
+    if (!this._cam1 || !this._cam2 || !this.views) return;
+    this.views.p1.layer.cameraFilter = this._cam2.id; // hidden from P2's camera
+    this.views.p2.layer.cameraFilter = this._cam1.id; // hidden from P1's camera
+    this.views.merged.layer.cameraFilter = 0;
+  }
+
+  _applyVisibility() {
+    if (!this.views) return;
+    this.views.p1.layer.setVisible(!this._merged);
+    this.views.p2.layer.setVisible(!this._merged);
+    this.views.merged.layer.setVisible(this._merged);
   }
 
   // ── Public API ───────────────────────────────────────────────────────────────
 
   /**
-   * Toggle gap tiles between WATER (split) and BRIDGE (merged).
+   * Switch between the split (per-player) views and the merged view.
    */
   setMerged(merged) {
-    for (let y = 0; y < WORLD_H; y++) {
-      for (let x = 0; x < WORLD_W; x++) {
-        if (this.data[y][x] === T.GAP) {
-          this.layer.putTileAt(merged ? T.BRIDGE : T.WATER, x, y);
-        }
-      }
+    this._merged = merged;
+    this._applyVisibility();
+  }
+
+  /**
+   * Replace world data with a new layers object, rebuild all view layers.
+   */
+  reloadMap(newLayers) {
+    this.layers = newLayers;
+    for (const v of Object.values(this.views)) {
+      v.layer.destroy();
+      v.tilemap.destroy();
     }
+    this._buildViews();
   }
 
   /**
-   * Replace world data with newData, rebuild the tilemap layer.
+   * Returns true when the given world-pixel position is walkable for `who`
+   * ('p1' | 'p2') in the current mode.
    */
-  reloadMap(newData) {
-    this.data = newData;
-    this.layer.destroy();
-    this.tilemap.destroy();
-    this._buildTilemap();
+  isWalkable(wx, wy, merged, who = 'p1') {
+    return this.isTileWalkable(Math.floor(wx / TILE), Math.floor(wy / TILE), merged, who);
   }
 
-  /**
-   * Returns true when the given world-pixel position is walkable.
-   */
-  isWalkable(wx, wy, merged) {
-    const tx = Math.floor(wx / TILE);
-    const ty = Math.floor(wy / TILE);
+  isTileWalkable(tx, ty, merged, who = 'p1') {
     if (tx < 0 || ty < 0 || tx >= WORLD_W || ty >= WORLD_H) return false;
-    const t = this.data[ty][tx];
+    const view = merged ? 'merged' : who;
+    const t = this.compositeTile(view, tx, ty);
     if (t === T.WALL || t === T.WATER) return false;
-    if (t === T.GAP && !merged) return false;
+    if (t === T.GAP && view !== 'merged') return false;
     return true;
   }
 
   /**
-   * Persist the current map data to localStorage.
+   * Persist the current map data to localStorage (v2 format).
    */
   saveMap() {
-    localStorage.setItem('splitworld-map', JSON.stringify(this.data));
+    localStorage.setItem('splitworld-map', JSON.stringify({ version: 2, ...this.layers }));
   }
 }
