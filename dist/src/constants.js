@@ -3,6 +3,11 @@ const WORLD_W = 60;
 const WORLD_H = 40;
 const TILE_COUNT = 7;
 
+// Merge-energy tuning: merged mode drains energy, split mode recharges it
+const MERGE_DRAIN_SECS    = 10;   // full bar lasts this long while merged
+const MERGE_RECHARGE_SECS = 5;    // empty -> full while split
+const MERGE_MIN_ENERGY    = 0.25; // minimum energy required to start a merge
+
 // Tile types
 const T = {
   GRASS:  0,

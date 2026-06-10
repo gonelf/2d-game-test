@@ -6,6 +6,7 @@ class Player {
     this.x      = x;
     this.y      = y;
     this._dir   = 'down';
+    this.gems   = 0;
 
     // Sprite uses the procedural 'character' atlas; tinted per player colour
     this.sprite = scene.add.sprite(x, y, 'character', 0)
