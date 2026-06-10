@@ -3,8 +3,16 @@ const WORLD_W = 60;
 const WORLD_H = 40;
 const TILE_COUNT = 7;
 
-// Sentinel for "no override" cells in the per-view layers (p1 / p2 / merged)
+// Sentinel for empty cells in map layers
 const NO_TILE = -1;
+
+// Map structure: stacked tile layers for rich maps. Every placed tile carries
+// a visibility tag deciding which view it exists in (rendering AND collision).
+const MAP_LAYER_COUNT = 3;
+const MAP_LAYER_NAMES = ['Ground', 'Mid', 'Top'];
+const VIS = { ALL: 0, P1: 1, P2: 2, MERGED: 3 };
+const VIS_NAMES  = ['ALL', 'P1', 'P2', 'MRG'];
+const VIS_COLORS = [0xffffff, 0xe74c3c, 0x3498db, 0x9b59b6];
 
 // Merge-energy tuning: merged mode drains energy, split mode recharges it
 const MERGE_DRAIN_SECS    = 10;   // full bar lasts this long while merged

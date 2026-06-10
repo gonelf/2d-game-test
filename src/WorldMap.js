@@ -1,9 +1,11 @@
-// WorldMap.js — multi-view world renderer.
-// The world is a shared `base` layer plus three override layers: `p1` and `p2`
-// (what each player sees/collides with in split mode) and `merged` (what both
-// see while views are merged). Override cells hold NO_TILE where the base
-// shows through. The legacy GAP tile still means water-when-split /
-// bridge-when-merged on whichever layer it sits.
+// WorldMap.js — stacked-layer world renderer with per-tile visibility.
+// The map is MAP_LAYER_COUNT stacked tile layers (Ground / Mid / Top); each
+// cell holds a tile id (or NO_TILE) plus a visibility tag (VIS.ALL / P1 / P2 /
+// MERGED) deciding which view the tile exists in. A view ('p1' | 'p2' |
+// 'merged') renders every layer's tiles whose tag matches, and walkability is
+// decided by the topmost visible tile (so a bridge on Mid makes water on
+// Ground crossable). The legacy GAP tile still means water-when-split /
+// bridge-when-merged.
 class WorldMap {
   constructor(scene) {
     this.scene   = scene;
@@ -11,48 +13,92 @@ class WorldMap {
     this._cam1   = null;
     this._cam2   = null;
 
-    // Load from localStorage (legacy or v2 format) or generate default
+    // Load from localStorage (any historic format) or generate default
     const saved = localStorage.getItem('splitworld-map');
-    let layers = null;
+    let mapLayers = null;
     if (saved) {
       try {
-        layers = WorldMap.normalizeLayers(JSON.parse(saved));
+        mapLayers = WorldMap.normalize(JSON.parse(saved));
       } catch (e) {
-        layers = null;
+        mapLayers = null;
       }
     }
-    this.layers = layers || this._generateDefault();
+    this.mapLayers = mapLayers || this._generateDefault();
 
     this._buildViews();
   }
 
-  // ── Layer data helpers ───────────────────────────────────────────────────────
+  // ── Map data helpers ─────────────────────────────────────────────────────────
 
-  static emptyOverrides() {
+  static emptyGrid(fill) {
     const grid = [];
-    for (let y = 0; y < WORLD_H; y++) grid[y] = new Array(WORLD_W).fill(NO_TILE);
+    for (let y = 0; y < WORLD_H; y++) grid[y] = new Array(WORLD_W).fill(fill);
     return grid;
   }
 
+  static emptyLayer() {
+    return { tiles: WorldMap.emptyGrid(NO_TILE), vis: WorldMap.emptyGrid(VIS.ALL) };
+  }
+
+  // Wrap a single full grid as the Ground layer of a fresh stack
+  static fromBase(base) {
+    const stack = [{ tiles: base.map(r => r.slice()), vis: WorldMap.emptyGrid(VIS.ALL) }];
+    while (stack.length < MAP_LAYER_COUNT) stack.push(WorldMap.emptyLayer());
+    return stack;
+  }
+
   /**
-   * Accepts legacy data (plain 2D array) or v2 data ({base, p1, p2, merged})
-   * and returns a complete layers object. Throws on unrecognised input.
+   * Accepts any historic save format and returns a v3 layer stack:
+   *  - v3: {version: 3, layers: [{tiles, vis}, ...]}
+   *  - v2: {base, p1, p2, merged} override grids
+   *  - v1: plain 2D tile array
+   * Throws on unrecognised input.
    */
-  static normalizeLayers(json) {
+  static normalize(json) {
+    // v3
+    if (json && json.version === 3 && Array.isArray(json.layers)) {
+      const out = [];
+      for (let i = 0; i < MAP_LAYER_COUNT; i++) {
+        const l = json.layers[i];
+        out.push(l && Array.isArray(l.tiles) && Array.isArray(l.tiles[0])
+          ? {
+              tiles: l.tiles.map(r => r.slice()),
+              vis: (Array.isArray(l.vis) && Array.isArray(l.vis[0]))
+                ? l.vis.map(r => r.slice())
+                : WorldMap.emptyGrid(VIS.ALL),
+            }
+          : WorldMap.emptyLayer());
+      }
+      return out;
+    }
+
+    // v1: plain grid
     if (Array.isArray(json) && Array.isArray(json[0])) {
-      return {
-        base:   json.map(r => r.slice()),
-        p1:     WorldMap.emptyOverrides(),
-        p2:     WorldMap.emptyOverrides(),
-        merged: WorldMap.emptyOverrides(),
-      };
+      return WorldMap.fromBase(json);
     }
+
+    // v2: base + per-view override grids → tagged tiles on the upper layers
     if (json && Array.isArray(json.base) && Array.isArray(json.base[0])) {
-      const grid = (g) => (Array.isArray(g) && Array.isArray(g[0]))
-        ? g.map(r => r.slice())
-        : WorldMap.emptyOverrides();
-      return { base: json.base.map(r => r.slice()), p1: grid(json.p1), p2: grid(json.p2), merged: grid(json.merged) };
+      const stack = WorldMap.fromBase(json.base);
+      const place = (grid, visTag) => {
+        if (!Array.isArray(grid) || !Array.isArray(grid[0])) return;
+        for (let y = 0; y < WORLD_H; y++) {
+          for (let x = 0; x < WORLD_W; x++) {
+            const t = grid[y] && grid[y][x];
+            if (t === NO_TILE || t == null) continue;
+            // First free upper layer; overwrite the top one as a last resort
+            const li = stack[1].tiles[y][x] === NO_TILE ? 1 : 2;
+            stack[li].tiles[y][x] = t;
+            stack[li].vis[y][x]   = visTag;
+          }
+        }
+      };
+      place(json.merged, VIS.MERGED);
+      place(json.p1, VIS.P1);
+      place(json.p2, VIS.P2);
+      return stack;
     }
+
     throw new Error('Unrecognised map data');
   }
 
@@ -66,12 +112,7 @@ class WorldMap {
         base[y][x] = this._tileAt(x, y);
       }
     }
-    return {
-      base,
-      p1:     WorldMap.emptyOverrides(),
-      p2:     WorldMap.emptyOverrides(),
-      merged: WorldMap.emptyOverrides(),
-    };
+    return WorldMap.fromBase(base);
   }
 
   _tileAt(x, y) {
@@ -103,12 +144,22 @@ class WorldMap {
 
   // ── View composition ─────────────────────────────────────────────────────────
 
+  static visibleIn(visTag, view) {
+    return visTag === VIS.ALL ||
+      (view === 'p1'     && visTag === VIS.P1) ||
+      (view === 'p2'     && visTag === VIS.P2) ||
+      (view === 'merged' && visTag === VIS.MERGED);
+  }
+
   /**
-   * Effective tile id for a view ('p1' | 'p2' | 'merged') at tile coords.
+   * Topmost tile visible in a view at tile coords, or NO_TILE.
    */
-  compositeTile(view, tx, ty) {
-    const ov = this.layers[view][ty][tx];
-    return ov !== NO_TILE ? ov : this.layers.base[ty][tx];
+  effectiveTile(view, tx, ty) {
+    for (let li = MAP_LAYER_COUNT - 1; li >= 0; li--) {
+      const t = this.mapLayers[li].tiles[ty][tx];
+      if (t !== NO_TILE && WorldMap.visibleIn(this.mapLayers[li].vis[ty][tx], view)) return t;
+    }
+    return NO_TILE;
   }
 
   // GAP renders as water in split views and as a bridge in the merged view
@@ -120,18 +171,26 @@ class WorldMap {
   // ── Tilemap creation ─────────────────────────────────────────────────────────
 
   _buildView(view) {
-    const data = [];
-    for (let y = 0; y < WORLD_H; y++) {
-      data[y] = [];
-      for (let x = 0; x < WORLD_W; x++) {
-        data[y][x] = this._renderId(view, this.compositeTile(view, x, y));
-      }
-    }
-
-    const tilemap = this.scene.make.tilemap({ data, tileWidth: TILE, tileHeight: TILE });
+    const tilemap = this.scene.make.tilemap({
+      tileWidth: TILE, tileHeight: TILE, width: WORLD_W, height: WORLD_H,
+    });
     const tileset = tilemap.addTilesetImage('tiles', 'tiles', TILE, TILE, 0, 0);
-    const layer   = tilemap.createLayer(0, tileset, 0, 0).setDepth(0);
-    return { tilemap, layer };
+
+    const layers = [];
+    for (let li = 0; li < MAP_LAYER_COUNT; li++) {
+      const layer = tilemap.createBlankLayer(view + '-' + li, tileset, 0, 0).setDepth(li);
+      const { tiles, vis } = this.mapLayers[li];
+      for (let y = 0; y < WORLD_H; y++) {
+        for (let x = 0; x < WORLD_W; x++) {
+          const t = tiles[y][x];
+          if (t !== NO_TILE && WorldMap.visibleIn(vis[y][x], view)) {
+            layer.putTileAt(this._renderId(view, t), x, y);
+          }
+        }
+      }
+      layers.push(layer);
+    }
+    return { tilemap, layers };
   }
 
   _buildViews() {
@@ -146,7 +205,7 @@ class WorldMap {
 
   /**
    * Register the two split-screen cameras so each one only renders its
-   * player's view layer.
+   * player's view layers.
    */
   setCameras(cam1, cam2) {
     this._cam1 = cam1;
@@ -156,16 +215,16 @@ class WorldMap {
 
   _applyCameraFilters() {
     if (!this._cam1 || !this._cam2 || !this.views) return;
-    this.views.p1.layer.cameraFilter = this._cam2.id; // hidden from P2's camera
-    this.views.p2.layer.cameraFilter = this._cam1.id; // hidden from P1's camera
-    this.views.merged.layer.cameraFilter = 0;
+    for (const l of this.views.p1.layers)     l.cameraFilter = this._cam2.id; // hidden from P2's camera
+    for (const l of this.views.p2.layers)     l.cameraFilter = this._cam1.id; // hidden from P1's camera
+    for (const l of this.views.merged.layers) l.cameraFilter = 0;
   }
 
   _applyVisibility() {
     if (!this.views) return;
-    this.views.p1.layer.setVisible(!this._merged);
-    this.views.p2.layer.setVisible(!this._merged);
-    this.views.merged.layer.setVisible(this._merged);
+    for (const l of this.views.p1.layers)     l.setVisible(!this._merged);
+    for (const l of this.views.p2.layers)     l.setVisible(!this._merged);
+    for (const l of this.views.merged.layers) l.setVisible(this._merged);
   }
 
   // ── Public API ───────────────────────────────────────────────────────────────
@@ -179,12 +238,12 @@ class WorldMap {
   }
 
   /**
-   * Replace world data with a new layers object, rebuild all view layers.
+   * Replace world data with a new layer stack, rebuild all views.
    */
   reloadMap(newLayers) {
-    this.layers = newLayers;
+    this.mapLayers = newLayers;
     for (const v of Object.values(this.views)) {
-      v.layer.destroy();
+      for (const l of v.layers) l.destroy();
       v.tilemap.destroy();
     }
     this._buildViews();
@@ -201,16 +260,16 @@ class WorldMap {
   isTileWalkable(tx, ty, merged, who = 'p1') {
     if (tx < 0 || ty < 0 || tx >= WORLD_W || ty >= WORLD_H) return false;
     const view = merged ? 'merged' : who;
-    const t = this.compositeTile(view, tx, ty);
-    if (t === T.WALL || t === T.WATER) return false;
+    const t = this.effectiveTile(view, tx, ty);
+    if (t === NO_TILE || t === T.WALL || t === T.WATER) return false;
     if (t === T.GAP && view !== 'merged') return false;
     return true;
   }
 
   /**
-   * Persist the current map data to localStorage (v2 format).
+   * Persist the current map data to localStorage (v3 format).
    */
   saveMap() {
-    localStorage.setItem('splitworld-map', JSON.stringify({ version: 2, ...this.layers }));
+    localStorage.setItem('splitworld-map', JSON.stringify({ version: 3, layers: this.mapLayers }));
   }
 }
