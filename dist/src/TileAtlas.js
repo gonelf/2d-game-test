@@ -1,11 +1,13 @@
-// TileAtlas.js — generates a 224×32 canvas texture named 'tiles' with 7 frames.
+// TileAtlas.js — generates a canvas texture named 'tiles', one 32×32 frame per
+// tile type. Prop tiles (tree/rock/flower) are drawn on a transparent
+// background so the layer underneath shows through.
 const TileAtlas = {
   generate(scene) {
     const TILE_W = 32;
     const TILE_H = 32;
-    const NUM_TILES = 7;
-    const W = TILE_W * NUM_TILES; // 224
-    const H = TILE_H;             // 32
+    const NUM_TILES = TILE_COUNT;
+    const W = TILE_W * NUM_TILES;
+    const H = TILE_H;
 
     // Create canvas texture
     const ct = scene.textures.createCanvas('tiles', W, H);
@@ -19,6 +21,9 @@ const TileAtlas = {
     this._drawGap(ctx,    T.GAP    * TILE_W, 0, TILE_W, TILE_H);
     this._drawPath(ctx,   T.PATH   * TILE_W, 0, TILE_W, TILE_H);
     this._drawSand(ctx,   T.SAND   * TILE_W, 0, TILE_W, TILE_H);
+    this._drawTree(ctx,   T.TREE   * TILE_W, 0, TILE_W, TILE_H);
+    this._drawRock(ctx,   T.ROCK   * TILE_W, 0, TILE_W, TILE_H);
+    this._drawFlower(ctx, T.FLOWER * TILE_W, 0, TILE_W, TILE_H);
 
     ct.refresh();
 
@@ -194,6 +199,92 @@ const TileAtlas = {
     const speckles = [[8,4],[18,8],[6,16],[24,18],[12,25],[22,28],[3,29],[28,11]];
     for (const [sx, sy] of speckles) {
       ctx.fillRect(ox + sx, oy + sy, 2, 1);
+    }
+  },
+
+  // ── Props (transparent background) ──────────────────────────────────────────
+
+  _drawTree(ctx, ox, oy) {
+    // Ground shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    ctx.beginPath();
+    ctx.ellipse(ox + 16, oy + 28, 9, 3, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Trunk
+    ctx.fillStyle = '#6d4c41';
+    ctx.fillRect(ox + 14, oy + 18, 5, 10);
+    ctx.fillStyle = '#5d3e37';
+    ctx.fillRect(ox + 14, oy + 18, 2, 10);
+
+    // Canopy
+    ctx.fillStyle = '#2e7d32';
+    for (const [cx, cy, r] of [[16, 11, 9], [10, 15, 6], [22, 15, 6]]) {
+      ctx.beginPath();
+      ctx.arc(ox + cx, oy + cy, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // Canopy highlights
+    ctx.fillStyle = '#43a047';
+    for (const [cx, cy, r] of [[13, 8, 4], [19, 11, 3]]) {
+      ctx.beginPath();
+      ctx.arc(ox + cx, oy + cy, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  },
+
+  _drawRock(ctx, ox, oy) {
+    // Ground shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    ctx.beginPath();
+    ctx.ellipse(ox + 16, oy + 26, 11, 3, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Boulder
+    ctx.fillStyle = '#9e9e9e';
+    ctx.beginPath();
+    ctx.ellipse(ox + 16, oy + 18, 11, 8, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // Shading and highlight
+    ctx.fillStyle = '#757575';
+    ctx.beginPath();
+    ctx.ellipse(ox + 19, oy + 21, 7, 4, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#bdbdbd';
+    ctx.beginPath();
+    ctx.ellipse(ox + 12, oy + 14, 4, 3, 0, 0, Math.PI * 2);
+    ctx.fill();
+  },
+
+  _drawFlower(ctx, ox, oy) {
+    const blooms = [
+      [8, 9, '#e84393'], [22, 13, '#fdcb6e'], [12, 23, '#e84393'], [25, 25, '#dfe6e9'],
+    ];
+    for (const [fx, fy, color] of blooms) {
+      // Stem
+      ctx.strokeStyle = '#2e7d32';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(ox + fx, oy + fy + 2);
+      ctx.lineTo(ox + fx, oy + fy + 6);
+      ctx.stroke();
+
+      // Petals
+      ctx.fillStyle = color;
+      for (const [px, py] of [[-2, 0], [2, 0], [0, -2], [0, 2]]) {
+        ctx.beginPath();
+        ctx.arc(ox + fx + px, oy + fy + py, 1.8, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      // Centre
+      ctx.fillStyle = '#f9ca24';
+      ctx.beginPath();
+      ctx.arc(ox + fx, oy + fy, 1.4, 0, Math.PI * 2);
+      ctx.fill();
     }
   },
 };

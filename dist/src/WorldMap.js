@@ -112,7 +112,18 @@ class WorldMap {
         base[y][x] = this._tileAt(x, y);
       }
     }
-    return WorldMap.fromBase(base);
+    const stack = WorldMap.fromBase(base);
+
+    // Scatter props on the Mid layer (visible to everyone)
+    const mid = stack[1].tiles;
+    const trees   = [[5, 20], [9, 25], [14, 30], [18, 8], [3, 35], [45, 5], [50, 15], [55, 20], [45, 32], [24, 33]];
+    const rocks   = [[7, 15], [52, 28], [20, 33], [42, 7]];
+    const flowers = [[12, 22], [48, 12], [25, 8], [36, 33], [16, 5], [44, 18]];
+    for (const [x, y] of trees)   mid[y][x] = T.TREE;
+    for (const [x, y] of rocks)   mid[y][x] = T.ROCK;
+    for (const [x, y] of flowers) mid[y][x] = T.FLOWER;
+
+    return stack;
   }
 
   _tileAt(x, y) {
@@ -149,17 +160,6 @@ class WorldMap {
       (view === 'p1'     && visTag === VIS.P1) ||
       (view === 'p2'     && visTag === VIS.P2) ||
       (view === 'merged' && visTag === VIS.MERGED);
-  }
-
-  /**
-   * Topmost tile visible in a view at tile coords, or NO_TILE.
-   */
-  effectiveTile(view, tx, ty) {
-    for (let li = MAP_LAYER_COUNT - 1; li >= 0; li--) {
-      const t = this.mapLayers[li].tiles[ty][tx];
-      if (t !== NO_TILE && WorldMap.visibleIn(this.mapLayers[li].vis[ty][tx], view)) return t;
-    }
-    return NO_TILE;
   }
 
   // GAP renders as water in split views and as a bridge in the merged view
@@ -257,13 +257,22 @@ class WorldMap {
     return this.isTileWalkable(Math.floor(wx / TILE), Math.floor(wy / TILE), merged, who);
   }
 
+  // Scans the stack top-down: SOLID blocks, FLOOR is walkable and stops the
+  // scan, DECO falls through to the layer below. An empty stack is a void.
   isTileWalkable(tx, ty, merged, who = 'p1') {
     if (tx < 0 || ty < 0 || tx >= WORLD_W || ty >= WORLD_H) return false;
     const view = merged ? 'merged' : who;
-    const t = this.effectiveTile(view, tx, ty);
-    if (t === NO_TILE || t === T.WALL || t === T.WATER) return false;
-    if (t === T.GAP && view !== 'merged') return false;
-    return true;
+
+    for (let li = MAP_LAYER_COUNT - 1; li >= 0; li--) {
+      const t = this.mapLayers[li].tiles[ty][tx];
+      if (t === NO_TILE || !WorldMap.visibleIn(this.mapLayers[li].vis[ty][tx], view)) continue;
+      if (t === T.GAP) return view === 'merged';
+      const cls = TILE_WALK[t];
+      if (cls === WALK_SOLID) return false;
+      if (cls === WALK_FLOOR) return true;
+      // WALK_DECO: keep scanning lower layers
+    }
+    return false;
   }
 
   /**

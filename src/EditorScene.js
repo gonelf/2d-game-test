@@ -151,30 +151,31 @@ class EditorScene extends Phaser.Scene {
   }
 
   _buildPalette(SB, DEPTH) {
-    const TILE_NAMES_LOCAL = ['Grass', 'Water', 'Wall', 'Bridge', 'Gap', 'Path', 'Sand'];
-    const COL_W  = SB / 2;
-    const ROW_H  = 52;
+    const TILE_NAMES_LOCAL = ['Grass', 'Water', 'Wall', 'Bridge', 'Gap', 'Path', 'Sand', 'Tree', 'Rock', 'Flower'];
+    const COLS   = 3;
+    const COL_W  = SB / COLS;
+    const ROW_H  = 46;
     const START_Y = 38;
 
     this._paletteButtons = [];
 
     for (let i = 0; i < TILE_COUNT; i++) {
-      const col = i % 2;
-      const row = Math.floor(i / 2);
+      const col = i % COLS;
+      const row = Math.floor(i / COLS);
       const cx  = col * COL_W + COL_W / 2;
       const cy  = START_Y + row * ROW_H + ROW_H / 2;
 
       const sel = this.add.graphics().setDepth(DEPTH + 1);
       sel.lineStyle(2, 0xffffff, 1);
-      sel.strokeRect(col * COL_W + 3, START_Y + row * ROW_H + 3, COL_W - 6, ROW_H - 6);
+      sel.strokeRect(col * COL_W + 2, START_Y + row * ROW_H + 2, COL_W - 4, ROW_H - 4);
       sel.setVisible(i === this.selectedTile);
 
-      this.add.image(cx, cy - 8, 'tiles', i)
+      this.add.image(cx, cy - 6, 'tiles', i)
         .setDepth(DEPTH + 2)
         .setInteractive({ useHandCursor: true });
 
       this.add.text(cx, cy + 12, TILE_NAMES_LOCAL[i], {
-        fontSize: '9px', fontFamily: 'monospace', color: '#cccccc',
+        fontSize: '8px', fontFamily: 'monospace', color: '#cccccc',
       }).setOrigin(0.5, 0).setDepth(DEPTH + 2);
 
       const zone = this.add.zone(col * COL_W, START_Y + row * ROW_H, COL_W, ROW_H)
@@ -189,6 +190,9 @@ class EditorScene extends Phaser.Scene {
 
       this._paletteButtons.push({ sel });
     }
+
+    // Layout cursor for the sections below
+    this._sideY = START_Y + Math.ceil(TILE_COUNT / COLS) * ROW_H + 4;
   }
 
   _updatePaletteHighlight() {
@@ -202,8 +206,8 @@ class EditorScene extends Phaser.Scene {
     const keys  = ['paint', 'fill', 'erase'];
     const BTN_W = SB / 3;
     const BTN_H = 24;
-    // Palette: ceil(TILE_COUNT/2) rows × 52px starting at y=38
-    const Y     = 38 + Math.ceil(TILE_COUNT / 2) * 52 + 4;
+    const Y     = this._sideY;
+    this._sideY = Y + BTN_H + 6;
 
     this._toolBtns = {};
 
@@ -244,8 +248,6 @@ class EditorScene extends Phaser.Scene {
   }
 
   _buildLayerButtons(SB, DEPTH) {
-    // Positioned just below tool buttons
-    const toolsBottom = 38 + Math.ceil(TILE_COUNT / 2) * 52 + 4 + 24;
     const BTN_H = 18;
 
     const makeRow = (labelText, Y0, defs, onPick) => {
@@ -278,16 +280,17 @@ class EditorScene extends Phaser.Scene {
     };
 
     // Paint target layer (stacking order: Ground at the bottom)
-    this._layerBtns = makeRow('LAYER', toolsBottom + 4,
+    this._layerBtns = makeRow('LAYER', this._sideY,
       MAP_LAYER_NAMES.map(n => ({ label: n.toUpperCase(), color: '#dddddd' })),
       (i) => this._setLayer(i));
 
     // Visibility tag for painted tiles
     const visColors = ['#dddddd', '#e74c3c', '#3498db', '#9b59b6'];
-    this._visBtns = makeRow('VISIBLE TO', toolsBottom + 4 + 11 + BTN_H + 4,
+    this._visBtns = makeRow('VISIBLE TO', this._sideY + 11 + BTN_H + 4,
       VIS_NAMES.map((n, i) => ({ label: n, color: visColors[i] })),
       (v) => this._setVis(v));
 
+    this._sideY += (11 + BTN_H + 4) * 2 + 2;
     this._updateLayerButtons();
   }
 
@@ -305,8 +308,7 @@ class EditorScene extends Phaser.Scene {
 
   _buildImportButtons(SB, DEPTH) {
     // Single compact row below the layer/visibility selectors
-    const toolsBottom = 38 + Math.ceil(TILE_COUNT / 2) * 52 + 4 + 24;
-    const Y = toolsBottom + 4 + (11 + 18 + 4) * 2 + 6;
+    const Y = this._sideY;
     const BTN_H = 20;
     const imports = [
       { label: 'Tiles PNG', action: () => this._importTileset() },
