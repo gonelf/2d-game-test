@@ -38,6 +38,7 @@ class EditorScene extends Phaser.Scene {
     this._buildSidebar();
     this._buildHUD();
     this._buildInspector();
+    this._buildTilePicker();
     this._buildMinimap();
     this._uiObjs = this.children.list.filter(o => !preUI.has(o));
 
@@ -605,26 +606,31 @@ class EditorScene extends Phaser.Scene {
         fontSize: '9px', fontFamily: 'monospace', color: '#8888aa',
       }).setOrigin(0, 0.5).setDepth(DEPTH + 1));
 
-      // Thumbnail — click to pick this tile into the palette
       const thumb = track(this.add.image(X + 60, cy, 'tiles', 0)
         .setScale(0.6).setDepth(DEPTH + 1));
-      track(this.add.zone(X + 50, rowY + 4, 20, ROW_H - 8)
-        .setOrigin(0, 0).setDepth(DEPTH + 3)
-        .setInteractive({ useHandCursor: true })
-        .on('pointerdown', () => {
-          if (!this._selectedCell) return;
-          const { tx, ty } = this._selectedCell;
-          const t = this.mapLayers[li].tiles[ty][tx];
-          if (t === NO_TILE) return;
-          this.selectedTile = t;
-          this._updatePaletteHighlight();
-          this._updateInspector();
-          this._showToast(`Picked ${TILE_NAMES[t]}`);
-        }));
 
       const tileName = track(this.add.text(X + 76, cy, '', {
         fontSize: '9px', fontFamily: 'monospace', color: '#e0e0ff',
       }).setOrigin(0, 0.5).setDepth(DEPTH + 1));
+
+      track(this.add.text(X + 164, cy, '▾', {
+        fontSize: '9px', fontFamily: 'monospace', color: '#666688',
+      }).setOrigin(0.5, 0.5).setDepth(DEPTH + 1));
+
+      // The row itself opens an in-panel tile picker for this layer — no trip
+      // back to the palette needed
+      const rowZone = track(this.add.zone(X + 4, rowY + 2, 166, ROW_H - 4)
+        .setOrigin(0, 0).setDepth(DEPTH + 3)
+        .setInteractive({ useHandCursor: true })
+        .on('pointerdown', () => {
+          if (!this._selectedCell) return;
+          if (this._pickerVisible && this._pickerLi === li) {
+            this._closePicker();
+          } else {
+            this._openPicker(li);
+          }
+        }));
+      this._hover(rowZone, X + 4, rowY + 2, 166, ROW_H - 4);
 
       // Visibility tag — click to cycle ALL/P1/P2/MRG on a placed tile
       const visTag = track(this.add.text(X + 186, cy, '', {
@@ -676,6 +682,118 @@ class EditorScene extends Phaser.Scene {
       px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h;
   }
 
+  // ── Tile picker (dropdown under the inspector) ───────────────────────────────
+
+  _buildTilePicker() {
+    const DEPTH = 80;
+    const COLS  = 6;
+    const CELL  = 26;
+    const items = TILE_COUNT + 1; // all tiles + a "clear" cell
+    const ROWS  = Math.ceil(items / COLS);
+    const W = COLS * CELL + 8;
+    const H = ROWS * CELL + 22;
+    const X = this._inspRect.x;
+    const Y = this._inspRect.y + this._inspRect.h + 4;
+    this._pickerRect = { x: X, y: Y, w: W, h: H, cols: COLS, cell: CELL };
+    this._pickerLi   = null;
+    this._pickerObjs = [];
+    const track = (o) => { this._pickerObjs.push(o); return o; };
+
+    const bg = track(this.add.graphics().setDepth(DEPTH));
+    bg.fillStyle(0x1a1a2e, 0.97);
+    bg.fillRect(X, Y, W, H);
+    bg.lineStyle(1, 0x3a3a5e, 1);
+    bg.strokeRect(X, Y, W, H);
+
+    this._pickerTitle = track(this.add.text(X + 6, Y + 5, '', {
+      fontSize: '9px', fontFamily: 'monospace', color: '#8888aa',
+    }).setDepth(DEPTH + 1));
+
+    this._pickerSel = track(this.add.graphics().setDepth(DEPTH + 1));
+
+    for (let i = 0; i < items; i++) {
+      const col = i % COLS;
+      const row = Math.floor(i / COLS);
+      const cx0 = X + 4 + col * CELL;
+      const cy0 = Y + 18 + row * CELL;
+
+      if (i < TILE_COUNT) {
+        track(this.add.image(cx0 + CELL / 2, cy0 + CELL / 2, 'tiles', i)
+          .setScale(0.7).setDepth(DEPTH + 2));
+      } else {
+        track(this.add.text(cx0 + CELL / 2, cy0 + CELL / 2, '∅', {
+          fontSize: '12px', fontFamily: 'monospace', color: '#cc8888',
+        }).setOrigin(0.5, 0.5).setDepth(DEPTH + 2));
+      }
+
+      const idx  = i;
+      const zone = track(this.add.zone(cx0, cy0, CELL, CELL)
+        .setOrigin(0, 0).setDepth(DEPTH + 3)
+        .setInteractive({ useHandCursor: true })
+        .on('pointerdown', () => this._pickTile(idx < TILE_COUNT ? idx : null)));
+      this._hover(zone, cx0, cy0, CELL, CELL);
+    }
+
+    this._setPickerVisible(false);
+  }
+
+  _setPickerVisible(visible) {
+    this._pickerVisible = visible;
+    for (const o of this._pickerObjs) {
+      o.setVisible(visible);
+      if (o.input) o.input.enabled = visible;
+    }
+  }
+
+  _openPicker(li) {
+    this._pickerLi = li;
+    this._pickerTitle.setText(`${MAP_LAYER_NAMES[li].toUpperCase()} — click a tile, ∅ clears`);
+    this._setPickerVisible(true);
+    this._updatePickerHighlight();
+  }
+
+  _closePicker() {
+    this._pickerLi = null;
+    this._setPickerVisible(false);
+  }
+
+  _updatePickerHighlight() {
+    if (!this._pickerVisible) return;
+    const g = this._pickerSel;
+    g.clear();
+    if (this._pickerLi == null || !this._selectedCell) return;
+    const { tx, ty } = this._selectedCell;
+    const t   = this.mapLayers[this._pickerLi].tiles[ty][tx];
+    const idx = t === NO_TILE ? TILE_COUNT : t;
+    const r   = this._pickerRect;
+    const col = idx % r.cols;
+    const row = Math.floor(idx / r.cols);
+    g.lineStyle(2, 0xffe66d, 1);
+    g.strokeRect(r.x + 4 + col * r.cell + 1, r.y + 18 + row * r.cell + 1, r.cell - 2, r.cell - 2);
+  }
+
+  // Apply a picker choice to the selected cell; null clears the layer.
+  // The picker stays open so tiles can be tried in quick succession.
+  _pickTile(t) {
+    if (this._pickerLi == null || !this._selectedCell) return;
+    const { tx, ty } = this._selectedCell;
+    const li = this._pickerLi;
+    if (t === null) {
+      this._setCell(li, tx, ty, li === 0 ? T.GRASS : NO_TILE, VIS.ALL);
+    } else {
+      // Keep the tile's existing visibility tag; fall back to the active one
+      const hadTile = this.mapLayers[li].tiles[ty][tx] !== NO_TILE;
+      const v = hadTile ? this.mapLayers[li].vis[ty][tx] : this.activeVis;
+      this._setCell(li, tx, ty, t, v);
+    }
+  }
+
+  _pointInPicker(px, py) {
+    const r = this._pickerRect;
+    return this._pickerVisible &&
+      px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h;
+  }
+
   // Mirrors WorldMap.isTileWalkable against the editor's (unsaved) map data
   _walkableIn(view, tx, ty) {
     for (let li = MAP_LAYER_COUNT - 1; li >= 0; li--) {
@@ -693,6 +811,7 @@ class EditorScene extends Phaser.Scene {
   _updateInspector() {
     if (!this._selectedCell) {
       this._setInspectorVisible(false);
+      if (this._pickerObjs) this._closePicker();
       return;
     }
     const { tx, ty } = this._selectedCell;
@@ -722,6 +841,7 @@ class EditorScene extends Phaser.Scene {
     for (const row of this._inspRows) {
       if (this.mapLayers[row.li].tiles[ty][tx] === NO_TILE) row.thumb.setVisible(false);
     }
+    if (this._pickerObjs) this._updatePickerHighlight();
   }
 
   // ── Minimap ───────────────────────────────────────────────────────────────────
@@ -876,9 +996,10 @@ class EditorScene extends Phaser.Scene {
         return;
       }
 
-      // Sidebar and inspector clicks are handled by their own zones
+      // Sidebar, inspector, and picker clicks are handled by their own zones
       if (ptr.x <= this.SIDEBAR_W) return;
       if (this._pointInInspector(ptr.x, ptr.y)) return;
+      if (this._pointInPicker(ptr.x, ptr.y)) return;
 
       // Minimap: jump the camera; keep panning while the pointer is held
       if (this._pointInMinimap(ptr.x, ptr.y)) {
@@ -937,7 +1058,8 @@ class EditorScene extends Phaser.Scene {
       const ty = Math.floor(wp.y / TILE);
 
       const overUI = ptr.x <= this.SIDEBAR_W ||
-        this._pointInInspector(ptr.x, ptr.y) || this._pointInMinimap(ptr.x, ptr.y);
+        this._pointInInspector(ptr.x, ptr.y) || this._pointInPicker(ptr.x, ptr.y) ||
+        this._pointInMinimap(ptr.x, ptr.y);
       if (!overUI) {
         this._updateHoverRect(tx, ty);
         const top = this._topTileAt(tx, ty);
@@ -980,14 +1102,28 @@ class EditorScene extends Phaser.Scene {
 
     // ── Keyboard shortcuts ────────────────────────────────────────────────────
     this.input.keyboard.on('keydown-E', () => this._back());
-    // Esc backs out one step: selection first, then the editor itself
+    // Esc backs out one step: picker, then selection, then the editor itself
     this.input.keyboard.on('keydown-ESC', () => {
-      if (this._selectedCell) {
+      if (this._pickerVisible) {
+        this._closePicker();
+      } else if (this._selectedCell) {
         this._clearSelection();
       } else {
         this._back();
       }
     });
+
+    // Arrow keys walk the selection from square to square
+    const moveSel = (dx, dy) => {
+      if (!this._selectedCell) return;
+      this._selectCell(
+        Phaser.Math.Clamp(this._selectedCell.tx + dx, 0, WORLD_W - 1),
+        Phaser.Math.Clamp(this._selectedCell.ty + dy, 0, WORLD_H - 1));
+    };
+    this.input.keyboard.on('keydown-UP',    () => moveSel(0, -1));
+    this.input.keyboard.on('keydown-DOWN',  () => moveSel(0, 1));
+    this.input.keyboard.on('keydown-LEFT',  () => moveSel(-1, 0));
+    this.input.keyboard.on('keydown-RIGHT', () => moveSel(1, 0));
 
     this.input.keyboard.on('keydown-Z', (e) => {
       if (e.ctrlKey || e.metaKey) {
