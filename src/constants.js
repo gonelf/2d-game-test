@@ -25,6 +25,7 @@ const MERGE_MIN_ENERGY    = 0.25; // minimum energy required to start a merge
 const WALK_FLOOR = 0;
 const WALK_SOLID = 1;
 const WALK_DECO  = 2;
+const WALK_NAMES = ['floor', 'solid', 'deco']; // indexed by walk class
 
 // Tile catalogue. Index = frame in assets/tiles.png (built by
 // scripts/build_assets.py). Indices 0-9 are stable across old saves —
