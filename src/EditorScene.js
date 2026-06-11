@@ -151,10 +151,9 @@ class EditorScene extends Phaser.Scene {
   }
 
   _buildPalette(SB, DEPTH) {
-    const TILE_NAMES_LOCAL = ['Grass', 'Water', 'Wall', 'Bridge', 'Gap', 'Path', 'Sand', 'Tree', 'Rock', 'Flower'];
-    const COLS   = 3;
+    const COLS   = 4;
     const COL_W  = SB / COLS;
-    const ROW_H  = 46;
+    const ROW_H  = 40;
     const START_Y = 38;
 
     this._paletteButtons = [];
@@ -170,13 +169,7 @@ class EditorScene extends Phaser.Scene {
       sel.strokeRect(col * COL_W + 2, START_Y + row * ROW_H + 2, COL_W - 4, ROW_H - 4);
       sel.setVisible(i === this.selectedTile);
 
-      this.add.image(cx, cy - 6, 'tiles', i)
-        .setDepth(DEPTH + 2)
-        .setInteractive({ useHandCursor: true });
-
-      this.add.text(cx, cy + 12, TILE_NAMES_LOCAL[i], {
-        fontSize: '8px', fontFamily: 'monospace', color: '#cccccc',
-      }).setOrigin(0.5, 0).setDepth(DEPTH + 2);
+      this.add.image(cx, cy, 'tiles', i).setDepth(DEPTH + 2);
 
       const zone = this.add.zone(col * COL_W, START_Y + row * ROW_H, COL_W, ROW_H)
         .setOrigin(0, 0).setDepth(DEPTH + 3)
@@ -187,18 +180,26 @@ class EditorScene extends Phaser.Scene {
         this.selectedTile = tileIndex;
         this._updatePaletteHighlight();
       });
+      zone.on('pointerover', () => this._paletteCaption.setText(TILE_NAMES[tileIndex]));
+      zone.on('pointerout',  () => this._paletteCaption.setText(TILE_NAMES[this.selectedTile]));
 
       this._paletteButtons.push({ sel });
     }
 
+    const capY = START_Y + Math.ceil(TILE_COUNT / COLS) * ROW_H + 2;
+    this._paletteCaption = this.add.text(SB / 2, capY, TILE_NAMES[this.selectedTile], {
+      fontSize: '10px', fontFamily: 'monospace', color: '#e0e0ff',
+    }).setOrigin(0.5, 0).setDepth(DEPTH + 1);
+
     // Layout cursor for the sections below
-    this._sideY = START_Y + Math.ceil(TILE_COUNT / COLS) * ROW_H + 4;
+    this._sideY = capY + 16;
   }
 
   _updatePaletteHighlight() {
     for (let i = 0; i < this._paletteButtons.length; i++) {
       this._paletteButtons[i].sel.setVisible(i === this.selectedTile);
     }
+    this._paletteCaption.setText(TILE_NAMES[this.selectedTile]);
   }
 
   _buildToolButtons(SB, DEPTH) {

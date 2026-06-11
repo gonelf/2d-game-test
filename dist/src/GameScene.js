@@ -29,8 +29,8 @@ class GameScene extends Phaser.Scene {
     const spawnX2 = (WORLD_W / 2 + 8) * TILE;
     const spawnY  = Math.floor(WORLD_H / 2) * TILE;
 
-    this.p1 = new Player(this, spawnX1, spawnY, { color: 0xe74c3c, label: 'P1', id: 'p1' });
-    this.p2 = new Player(this, spawnX2, spawnY, { color: 0x3498db, label: 'P2', id: 'p2' });
+    this.p1 = new Player(this, spawnX1, spawnY, { color: 0xe74c3c, label: 'P1', id: 'p1', charKey: 'char-p1' });
+    this.p2 = new Player(this, spawnX2, spawnY, { color: 0x3498db, label: 'P2', id: 'p2', charKey: 'char-p2' });
 
     // ── Input ─────────────────────────────────────────────────────────────────
     this.keys1 = this.input.keyboard.addKeys({

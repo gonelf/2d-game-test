@@ -25,6 +25,16 @@ const TileAtlas = {
     this._drawRock(ctx,   T.ROCK   * TILE_W, 0, TILE_W, TILE_H);
     this._drawFlower(ctx, T.FLOWER * TILE_W, 0, TILE_W, TILE_H);
 
+    // Tiles beyond the hand-drawn set: flat colour swatches from TILE_DEFS
+    for (let i = T.FLOWER + 1; i < NUM_TILES; i++) {
+      const c = TILE_DEFS[i].color;
+      ctx.fillStyle = '#' + c.toString(16).padStart(6, '0');
+      ctx.fillRect(i * TILE_W, 0, TILE_W, TILE_H);
+      ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(i * TILE_W + 1, 1, TILE_W - 2, TILE_H - 2);
+    }
+
     ct.refresh();
 
     // Register named frames so tiles can be referenced by index
