@@ -11,7 +11,8 @@ class EditorScene extends Phaser.Scene {
     this.mapLayers = this._cloneMapLayers(this.worldMap.mapLayers);
 
     this.selectedTile   = T.GRASS;
-    this.activeTool     = 'paint';   // 'paint' | 'fill' | 'erase'
+    this.activeTool     = 'paint';   // 'paint' | 'fill' | 'erase' | 'select'
+    this._selectedCell  = null;      // {tx, ty} inspected by the select tool
     this.activeLayer    = 0;         // index into MAP_LAYER_NAMES — paint target
     this.activeVis      = VIS.ALL;   // visibility tag applied to painted tiles
     this._isPainting    = false;
@@ -29,11 +30,13 @@ class EditorScene extends Phaser.Scene {
     this._buildGrid();
     this._buildMarkers();
     this._buildHoverRect();
+    this._buildSelectRect();
 
     // Snapshot children before building UI so we can isolate UI objects
     const preUI = new Set(this.children.list);
     this._buildSidebar();
     this._buildHUD();
+    this._buildInspector();
     this._uiObjs = this.children.list.filter(o => !preUI.has(o));
 
     this._setupCamera(SIDEBAR_W);
@@ -179,6 +182,7 @@ class EditorScene extends Phaser.Scene {
       zone.on('pointerdown', () => {
         this.selectedTile = tileIndex;
         this._updatePaletteHighlight();
+        this._updateInspector();
       });
       zone.on('pointerover', () => this._paletteCaption.setText(TILE_NAMES[tileIndex]));
       zone.on('pointerout',  () => this._paletteCaption.setText(TILE_NAMES[this.selectedTile]));
@@ -203,9 +207,9 @@ class EditorScene extends Phaser.Scene {
   }
 
   _buildToolButtons(SB, DEPTH) {
-    const tools = ['Paint', 'Fill', 'Erase'];
-    const keys  = ['paint', 'fill', 'erase'];
-    const BTN_W = SB / 3;
+    const tools = ['Paint', 'Fill', 'Erase', 'Select'];
+    const keys  = ['paint', 'fill', 'erase', 'select'];
+    const BTN_W = SB / tools.length;
     const BTN_H = 24;
     const Y     = this._sideY;
     this._sideY = Y + BTN_H + 6;
@@ -232,6 +236,7 @@ class EditorScene extends Phaser.Scene {
       zone.on('pointerdown', () => {
         this.activeTool = toolKey;
         this._updateToolButtons();
+        if (toolKey !== 'select') this._clearSelection();
       });
 
       this._toolBtns[toolKey] = { bg: btnBg, label, x, y: Y, w: BTN_W, h: BTN_H };
@@ -420,6 +425,185 @@ class EditorScene extends Phaser.Scene {
     g.fillRect(tx * TILE + 1, ty * TILE + 1, TILE - 2, TILE - 2);
   }
 
+  // ── Select tool / inspector ──────────────────────────────────────────────────
+
+  _buildSelectRect() {
+    this.selectGfx = this.add.graphics().setDepth(6).setScrollFactor(1);
+  }
+
+  _drawSelectRect() {
+    const g = this.selectGfx;
+    g.clear();
+    if (!this._selectedCell) return;
+    const { tx, ty } = this._selectedCell;
+    g.lineStyle(2, 0xffe66d, 1);
+    g.strokeRect(tx * TILE + 1, ty * TILE + 1, TILE - 2, TILE - 2);
+  }
+
+  _selectCell(tx, ty) {
+    this._selectedCell = (tx >= 0 && ty >= 0 && tx < WORLD_W && ty < WORLD_H)
+      ? { tx, ty } : null;
+    this._drawSelectRect();
+    this._updateInspector();
+  }
+
+  _clearSelection() {
+    this._selectedCell = null;
+    this._drawSelectRect();
+    this._updateInspector();
+  }
+
+  // Writes one cell on one layer as a single undoable action (inspector edits)
+  _setCell(li, tx, ty, newT, newV) {
+    const { tiles, vis } = this.mapLayers[li];
+    const oldT = tiles[ty][tx];
+    const oldV = vis[ty][tx];
+    if (oldT === newT && oldV === newV) return;
+    tiles[ty][tx] = newT;
+    vis[ty][tx]   = newV;
+    this._undoStack.push([{ li, tx, ty, oldT, oldV, newT, newV }]);
+    this._redoStack = [];
+    this._renderCell(li, tx, ty);
+    this._redrawMarkers();
+    this._updateInspector();
+  }
+
+  _buildInspector() {
+    const W        = this.scale.width;
+    const PANEL_W  = 252;
+    const ROW_H    = 30;
+    const HEADER_H = 22;
+    const PANEL_H  = HEADER_H + MAP_LAYER_COUNT * ROW_H + 8;
+    const X        = W - PANEL_W - 8;
+    const Y        = 8;
+    const DEPTH    = 70;
+
+    this._inspRect = { x: X, y: Y, w: PANEL_W, h: PANEL_H };
+    this._inspObjs = [];
+    const track = (o) => { this._inspObjs.push(o); return o; };
+
+    const bg = track(this.add.graphics().setDepth(DEPTH));
+    bg.fillStyle(0x1a1a2e, 0.95);
+    bg.fillRect(X, Y, PANEL_W, PANEL_H);
+    bg.lineStyle(1, 0x3a3a5e, 1);
+    bg.strokeRect(X, Y, PANEL_W, PANEL_H);
+
+    this._inspTitle = track(this.add.text(X + 8, Y + 6, '', {
+      fontSize: '10px', fontFamily: 'monospace', color: '#e0e0ff',
+    }).setDepth(DEPTH + 1));
+
+    const makeBtn = (x, y, w, h, label, fill, textColor, onClick) => {
+      const g = track(this.add.graphics().setDepth(DEPTH + 1));
+      g.fillStyle(fill, 1);
+      g.fillRect(x, y, w, h);
+      track(this.add.text(x + w / 2, y + h / 2, label, {
+        fontSize: '9px', fontFamily: 'monospace', color: textColor,
+      }).setOrigin(0.5, 0.5).setDepth(DEPTH + 2));
+      track(this.add.zone(x, y, w, h)
+        .setOrigin(0, 0).setDepth(DEPTH + 3)
+        .setInteractive({ useHandCursor: true })
+        .on('pointerdown', onClick));
+    };
+
+    this._inspRows = [];
+    // Display layers top-down (Top first) to mirror the visual stack
+    for (let i = 0; i < MAP_LAYER_COUNT; i++) {
+      const li   = MAP_LAYER_COUNT - 1 - i;
+      const rowY = Y + HEADER_H + i * ROW_H;
+      const cy   = rowY + ROW_H / 2;
+
+      const name = track(this.add.text(X + 8, cy, MAP_LAYER_NAMES[li].toUpperCase(), {
+        fontSize: '9px', fontFamily: 'monospace', color: '#8888aa',
+      }).setOrigin(0, 0.5).setDepth(DEPTH + 1));
+
+      const thumb = track(this.add.image(X + 60, cy, 'tiles', 0)
+        .setScale(0.6).setDepth(DEPTH + 1));
+
+      const tileName = track(this.add.text(X + 76, cy, '', {
+        fontSize: '9px', fontFamily: 'monospace', color: '#e0e0ff',
+      }).setOrigin(0, 0.5).setDepth(DEPTH + 1));
+
+      // Visibility tag — click to cycle ALL/P1/P2/MRG on a placed tile
+      const visTag = track(this.add.text(X + 150, cy, '', {
+        fontSize: '9px', fontFamily: 'monospace', color: '#ffffff',
+      }).setOrigin(0.5, 0.5).setDepth(DEPTH + 1));
+      track(this.add.zone(X + 136, rowY + 4, 28, ROW_H - 8)
+        .setOrigin(0, 0).setDepth(DEPTH + 3)
+        .setInteractive({ useHandCursor: true })
+        .on('pointerdown', () => {
+          if (!this._selectedCell) return;
+          const { tx, ty } = this._selectedCell;
+          const { tiles, vis } = this.mapLayers[li];
+          if (tiles[ty][tx] === NO_TILE) return;
+          this._setCell(li, tx, ty, tiles[ty][tx], (vis[ty][tx] + 1) % VIS_NAMES.length);
+        }));
+
+      // Set: place the palette tile (with the active visibility) on this layer
+      makeBtn(X + 168, rowY + 6, 36, ROW_H - 12, 'Set', 0x2a3a2a, '#88cc88', () => {
+        if (!this._selectedCell) return;
+        const { tx, ty } = this._selectedCell;
+        this._setCell(li, tx, ty, this.selectedTile, this.activeVis);
+      });
+
+      // X: clear this layer at the cell (grass on Ground, empty above)
+      makeBtn(X + 210, rowY + 6, 18, ROW_H - 12, 'X', 0x3a2a2a, '#cc8888', () => {
+        if (!this._selectedCell) return;
+        const { tx, ty } = this._selectedCell;
+        this._setCell(li, tx, ty, li === 0 ? T.GRASS : NO_TILE, VIS.ALL);
+      });
+
+      this._inspRows.push({ li, name, thumb, tileName, visTag });
+    }
+
+    this._setInspectorVisible(false);
+  }
+
+  _setInspectorVisible(visible) {
+    this._inspVisible = visible;
+    for (const o of this._inspObjs) o.setVisible(visible);
+    // Hidden zones still receive input unless disabled
+    for (const o of this._inspObjs) {
+      if (o.input) o.input.enabled = visible;
+    }
+  }
+
+  _pointInInspector(px, py) {
+    const r = this._inspRect;
+    return this._inspVisible &&
+      px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h;
+  }
+
+  _updateInspector() {
+    if (!this._selectedCell) {
+      this._setInspectorVisible(false);
+      return;
+    }
+    const { tx, ty } = this._selectedCell;
+    this._inspTitle.setText(`TILE ${tx},${ty} — Set places ${TILE_NAMES[this.selectedTile]}`);
+
+    for (const row of this._inspRows) {
+      const { tiles, vis } = this.mapLayers[row.li];
+      const t = tiles[ty][tx];
+      if (t === NO_TILE) {
+        row.thumb.setVisible(false);
+        row.tileName.setText('(empty)').setColor('#666688');
+        row.visTag.setText('');
+      } else {
+        row.thumb.setFrame(t);
+        row.tileName.setText(TILE_NAMES[t]).setColor('#e0e0ff');
+        const v = vis[ty][tx];
+        row.visTag.setText(VIS_NAMES[v])
+          .setColor('#' + VIS_COLORS[v].toString(16).padStart(6, '0'));
+      }
+    }
+
+    this._setInspectorVisible(true);
+    // setVisible(true) above re-shows every tracked object; re-hide empty thumbs
+    for (const row of this._inspRows) {
+      if (this.mapLayers[row.li].tiles[ty][tx] === NO_TILE) row.thumb.setVisible(false);
+    }
+  }
+
   // ── HUD (tile coords + zoom) ──────────────────────────────────────────────────
 
   _buildHUD() {
@@ -450,7 +634,7 @@ class EditorScene extends Phaser.Scene {
     this._uiCam.setZoom(1).setScroll(0, 0);
 
     // Each camera only sees its own objects
-    this._uiCam.ignore([...this.layers, this.gridGfx, this.markerGfx, this.hoverGfx]);
+    this._uiCam.ignore([...this.layers, this.gridGfx, this.markerGfx, this.hoverGfx, this.selectGfx]);
     this.cameras.main.ignore(this._uiObjs);
 
     this._panKeys = this.input.keyboard.addKeys({
@@ -511,6 +695,17 @@ class EditorScene extends Phaser.Scene {
         return;
       }
 
+      // Clicks on the inspector panel are handled by its own zones
+      if (this._pointInInspector(ptr.x, ptr.y)) return;
+
+      // Select tool: pick a cell to inspect (any mouse button)
+      if (this.activeTool === 'select') {
+        if (ptr.x <= this.SIDEBAR_W) return;
+        const wp = this.cameras.main.getWorldPoint(ptr.x, ptr.y);
+        this._selectCell(Math.floor(wp.x / TILE), Math.floor(wp.y / TILE));
+        return;
+      }
+
       // Right-click: erase (to grass on base, clears the override on view layers)
       if (ptr.rightButtonDown()) {
         this._applyTile(ptr, this._eraseValue());
@@ -544,7 +739,7 @@ class EditorScene extends Phaser.Scene {
       const tx = Math.floor(wp.x / TILE);
       const ty = Math.floor(wp.y / TILE);
 
-      if (ptr.x > this.SIDEBAR_W) {
+      if (ptr.x > this.SIDEBAR_W && !this._pointInInspector(ptr.x, ptr.y)) {
         this._updateHoverRect(tx, ty);
         this._hudText.setText(`${tx},${ty}  ${this.cameras.main.zoom.toFixed(2)}x  [${MAP_LAYER_NAMES[this.activeLayer].toUpperCase()}·${VIS_NAMES[this.activeVis]}]`);
       } else {
@@ -676,6 +871,7 @@ class EditorScene extends Phaser.Scene {
       this._renderCell(li, tx, ty);
     }
     this._redrawMarkers();
+    this._updateInspector();
     this._showToast('Undo');
   }
 
@@ -689,6 +885,7 @@ class EditorScene extends Phaser.Scene {
       this._renderCell(li, tx, ty);
     }
     this._redrawMarkers();
+    this._updateInspector();
     this._showToast('Redo');
   }
 
@@ -824,6 +1021,7 @@ class EditorScene extends Phaser.Scene {
     if (this._uiCam) this._uiCam.ignore([...this.layers, this.gridGfx]);
     this._redrawMarkers();
     this.hoverGfx.clear();
+    this._updateInspector();
   }
 
   _showToast(msg) {
