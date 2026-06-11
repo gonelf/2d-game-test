@@ -8,13 +8,47 @@ class BootScene extends Phaser.Scene {
   }
 
   preload() {
-    this.load.spritesheet('tiles', 'assets/tiles.png', { frameWidth: 32, frameHeight: 32 });
-    this.load.spritesheet('char-p1', 'assets/char-p1.png', { frameWidth: 32, frameHeight: 64 });
-    this.load.spritesheet('char-p2', 'assets/char-p2.png', { frameWidth: 32, frameHeight: 64 });
-    this.load.on('loaderror', (file) => console.warn('Asset failed to load:', file.key));
+    // Embedded sheets (src/AssetData.js) are added via the texture manager in
+    // create() — the loader refuses data URIs. Only load PNGs over the network
+    // when the embedded data is missing.
+    if (typeof ASSET_DATA === 'undefined') {
+      this.load.spritesheet('tiles', 'assets/tiles.png', { frameWidth: 32, frameHeight: 32 });
+      this.load.spritesheet('char-p1', 'assets/char-p1.png', { frameWidth: 32, frameHeight: 64 });
+      this.load.spritesheet('char-p2', 'assets/char-p2.png', { frameWidth: 32, frameHeight: 64 });
+      this.load.on('loaderror', (file) => console.warn('Asset failed to load:', file.key));
+    }
   }
 
   create() {
+    const ready = typeof ASSET_DATA !== 'undefined'
+      ? this._addEmbeddedSheets()
+      : Promise.resolve();
+    ready.then(() => this._finishBoot());
+  }
+
+  // Decode the embedded data URIs and register them as spritesheets. Immune
+  // to file:// restrictions and stale browser caches.
+  _addEmbeddedSheets() {
+    const defs = [
+      ['tiles',   ASSET_DATA.tiles,  { frameWidth: 32, frameHeight: 32 }],
+      ['char-p1', ASSET_DATA.charP1, { frameWidth: 32, frameHeight: 64 }],
+      ['char-p2', ASSET_DATA.charP2, { frameWidth: 32, frameHeight: 64 }],
+    ];
+    return Promise.all(defs.map(([key, uri, cfg]) => new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        this.textures.addSpriteSheet(key, img, cfg);
+        resolve();
+      };
+      img.onerror = () => {
+        console.warn('Embedded asset failed to decode:', key);
+        resolve(); // procedural fallback kicks in below
+      };
+      img.src = uri;
+    })));
+  }
+
+  _finishBoot() {
     if (!this.textures.exists('tiles')) TileAtlas.generate(this);
     this._createGemTexture();
 

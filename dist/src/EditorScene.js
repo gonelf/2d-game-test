@@ -147,7 +147,8 @@ class EditorScene extends Phaser.Scene {
     this._buildImportButtons(SB, DEPTH);
     this._buildActionButtons(SB, DEPTH);
 
-    this.add.text(SB / 2, H - 14, 'WASD pan · Q layer · 1-4 visibility · Ctrl+Z', {
+    this.add.text(SB / 2, H - 14,
+      'WASD pan · B/F/X/V tools · Alt+click pick · G grid · Q layer · 1-4 vis · Ctrl+Z', {
       fontSize: '8px', fontFamily: 'monospace', color: '#8888aa',
       wordWrap: { width: SB - 10 }, align: 'center',
     }).setOrigin(0.5, 1).setDepth(DEPTH + 1);
@@ -233,11 +234,7 @@ class EditorScene extends Phaser.Scene {
         .setInteractive({ useHandCursor: true });
 
       const toolKey = keys[i];
-      zone.on('pointerdown', () => {
-        this.activeTool = toolKey;
-        this._updateToolButtons();
-        if (toolKey !== 'select') this._clearSelection();
-      });
+      zone.on('pointerdown', () => this._setTool(toolKey));
 
       this._toolBtns[toolKey] = { bg: btnBg, label, x, y: Y, w: BTN_W, h: BTN_H };
     }
@@ -317,10 +314,11 @@ class EditorScene extends Phaser.Scene {
     const Y = this._sideY;
     const BTN_H = 20;
     const imports = [
-      { label: 'Tiles PNG', action: () => this._importTileset() },
-      { label: 'Map JSON',  action: () => this._importMap()     },
+      { label: 'Tiles',  action: () => this._importTileset() },
+      { label: 'Import', action: () => this._importMap()     },
+      { label: 'Export', action: () => this._exportMap()     },
     ];
-    const W2 = (SB - 12) / 2;
+    const W2 = (SB - 16) / 3;
 
     for (let i = 0; i < imports.length; i++) {
       const x = 4 + i * (W2 + 4);
@@ -470,9 +468,9 @@ class EditorScene extends Phaser.Scene {
 
   _buildInspector() {
     const W        = this.scale.width;
-    const PANEL_W  = 252;
+    const PANEL_W  = 300;
     const ROW_H    = 30;
-    const HEADER_H = 22;
+    const HEADER_H = 34;
     const PANEL_H  = HEADER_H + MAP_LAYER_COUNT * ROW_H + 8;
     const X        = W - PANEL_W - 8;
     const Y        = 8;
@@ -490,6 +488,11 @@ class EditorScene extends Phaser.Scene {
 
     this._inspTitle = track(this.add.text(X + 8, Y + 6, '', {
       fontSize: '10px', fontFamily: 'monospace', color: '#e0e0ff',
+    }).setDepth(DEPTH + 1));
+
+    // Per-view walkability of the whole cell (top-down layer scan)
+    this._inspWalk = track(this.add.text(X + 8, Y + 19, '', {
+      fontSize: '9px', fontFamily: 'monospace', color: '#8888aa',
     }).setDepth(DEPTH + 1));
 
     const makeBtn = (x, y, w, h, label, fill, textColor, onClick) => {
@@ -516,18 +519,32 @@ class EditorScene extends Phaser.Scene {
         fontSize: '9px', fontFamily: 'monospace', color: '#8888aa',
       }).setOrigin(0, 0.5).setDepth(DEPTH + 1));
 
+      // Thumbnail — click to pick this tile into the palette
       const thumb = track(this.add.image(X + 60, cy, 'tiles', 0)
         .setScale(0.6).setDepth(DEPTH + 1));
+      track(this.add.zone(X + 50, rowY + 4, 20, ROW_H - 8)
+        .setOrigin(0, 0).setDepth(DEPTH + 3)
+        .setInteractive({ useHandCursor: true })
+        .on('pointerdown', () => {
+          if (!this._selectedCell) return;
+          const { tx, ty } = this._selectedCell;
+          const t = this.mapLayers[li].tiles[ty][tx];
+          if (t === NO_TILE) return;
+          this.selectedTile = t;
+          this._updatePaletteHighlight();
+          this._updateInspector();
+          this._showToast(`Picked ${TILE_NAMES[t]}`);
+        }));
 
       const tileName = track(this.add.text(X + 76, cy, '', {
         fontSize: '9px', fontFamily: 'monospace', color: '#e0e0ff',
       }).setOrigin(0, 0.5).setDepth(DEPTH + 1));
 
       // Visibility tag — click to cycle ALL/P1/P2/MRG on a placed tile
-      const visTag = track(this.add.text(X + 150, cy, '', {
+      const visTag = track(this.add.text(X + 186, cy, '', {
         fontSize: '9px', fontFamily: 'monospace', color: '#ffffff',
       }).setOrigin(0.5, 0.5).setDepth(DEPTH + 1));
-      track(this.add.zone(X + 136, rowY + 4, 28, ROW_H - 8)
+      track(this.add.zone(X + 172, rowY + 4, 28, ROW_H - 8)
         .setOrigin(0, 0).setDepth(DEPTH + 3)
         .setInteractive({ useHandCursor: true })
         .on('pointerdown', () => {
@@ -539,14 +556,14 @@ class EditorScene extends Phaser.Scene {
         }));
 
       // Set: place the palette tile (with the active visibility) on this layer
-      makeBtn(X + 168, rowY + 6, 36, ROW_H - 12, 'Set', 0x2a3a2a, '#88cc88', () => {
+      makeBtn(X + 208, rowY + 6, 40, ROW_H - 12, 'Set', 0x2a3a2a, '#88cc88', () => {
         if (!this._selectedCell) return;
         const { tx, ty } = this._selectedCell;
         this._setCell(li, tx, ty, this.selectedTile, this.activeVis);
       });
 
       // X: clear this layer at the cell (grass on Ground, empty above)
-      makeBtn(X + 210, rowY + 6, 18, ROW_H - 12, 'X', 0x3a2a2a, '#cc8888', () => {
+      makeBtn(X + 254, rowY + 6, 18, ROW_H - 12, 'X', 0x3a2a2a, '#cc8888', () => {
         if (!this._selectedCell) return;
         const { tx, ty } = this._selectedCell;
         this._setCell(li, tx, ty, li === 0 ? T.GRASS : NO_TILE, VIS.ALL);
@@ -573,6 +590,20 @@ class EditorScene extends Phaser.Scene {
       px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h;
   }
 
+  // Mirrors WorldMap.isTileWalkable against the editor's (unsaved) map data
+  _walkableIn(view, tx, ty) {
+    for (let li = MAP_LAYER_COUNT - 1; li >= 0; li--) {
+      const t = this.mapLayers[li].tiles[ty][tx];
+      if (t === NO_TILE || !WorldMap.visibleIn(this.mapLayers[li].vis[ty][tx], view)) continue;
+      if (t === T.GAP) return view === 'merged';
+      const cls = TILE_WALK[t];
+      if (cls === WALK_SOLID) return false;
+      if (cls === WALK_FLOOR) return true;
+      // WALK_DECO: keep scanning lower layers
+    }
+    return false;
+  }
+
   _updateInspector() {
     if (!this._selectedCell) {
       this._setInspectorVisible(false);
@@ -581,6 +612,10 @@ class EditorScene extends Phaser.Scene {
     const { tx, ty } = this._selectedCell;
     this._inspTitle.setText(`TILE ${tx},${ty} — Set places ${TILE_NAMES[this.selectedTile]}`);
 
+    const mark = (view) => this._walkableIn(view, tx, ty) ? '✓' : '✗';
+    this._inspWalk.setText(`walk  P1 ${mark('p1')} · P2 ${mark('p2')} · MRG ${mark('merged')}`);
+
+    const WALK_LABELS = ['floor', 'solid', 'deco'];
     for (const row of this._inspRows) {
       const { tiles, vis } = this.mapLayers[row.li];
       const t = tiles[ty][tx];
@@ -590,7 +625,7 @@ class EditorScene extends Phaser.Scene {
         row.visTag.setText('');
       } else {
         row.thumb.setFrame(t);
-        row.tileName.setText(TILE_NAMES[t]).setColor('#e0e0ff');
+        row.tileName.setText(`${TILE_NAMES[t]} ·${WALK_LABELS[TILE_WALK[t]]}`).setColor('#e0e0ff');
         const v = vis[ty][tx];
         row.visTag.setText(VIS_NAMES[v])
           .setColor('#' + VIS_COLORS[v].toString(16).padStart(6, '0'));
@@ -699,29 +734,34 @@ class EditorScene extends Phaser.Scene {
       if (ptr.x <= this.SIDEBAR_W) return;
       if (this._pointInInspector(ptr.x, ptr.y)) return;
 
+      const wp = this.cameras.main.getWorldPoint(ptr.x, ptr.y);
+      const tx = Math.floor(wp.x / TILE);
+      const ty = Math.floor(wp.y / TILE);
+
+      // Alt+click: eyedropper — pick the topmost tile into the palette
+      if (ptr.event?.altKey) {
+        this._eyedrop(tx, ty);
+        return;
+      }
+
       // Select tool: pick a cell to inspect (any mouse button)
       if (this.activeTool === 'select') {
-        const wp = this.cameras.main.getWorldPoint(ptr.x, ptr.y);
-        this._selectCell(Math.floor(wp.x / TILE), Math.floor(wp.y / TILE));
+        this._selectCell(tx, ty);
         return;
       }
 
-      // Right-click: erase (to grass on base, clears the override on view layers)
-      if (ptr.rightButtonDown()) {
-        this._applyTile(ptr, this._eraseValue());
-        return;
-      }
-
-      if (this.activeTool === 'fill') {
-        const wp = this.cameras.main.getWorldPoint(ptr.x, ptr.y);
-        const tx = Math.floor(wp.x / TILE);
-        const ty = Math.floor(wp.y / TILE);
+      if (this.activeTool === 'fill' && !ptr.rightButtonDown()) {
         this._floodFill(tx, ty, this.selectedTile);
-      } else {
-        this._isPainting    = true;
-        this._currentStroke = new Map();
-        this._applyTile(ptr, this.activeTool === 'erase' ? this._eraseValue() : this.selectedTile);
+        return;
       }
+
+      // Paint stroke. Right-click always erases (to grass on base, clears the
+      // override on view layers), regardless of the active tool.
+      const erasing = ptr.rightButtonDown() || this.activeTool === 'erase';
+      this._isPainting    = true;
+      this._currentStroke = new Map();
+      this._strokeValue   = erasing ? this._eraseValue() : this.selectedTile;
+      this._applyTile(ptr, this._strokeValue);
     });
 
     // ── Pointer move ──────────────────────────────────────────────────────────
@@ -739,14 +779,16 @@ class EditorScene extends Phaser.Scene {
 
       if (ptr.x > this.SIDEBAR_W && !this._pointInInspector(ptr.x, ptr.y)) {
         this._updateHoverRect(tx, ty);
-        this._hudText.setText(`${tx},${ty}  ${this.cameras.main.zoom.toFixed(2)}x  [${MAP_LAYER_NAMES[this.activeLayer].toUpperCase()}·${VIS_NAMES[this.activeVis]}]`);
+        const top = this._topTileAt(tx, ty);
+        const under = top ? `  ${TILE_NAMES[top.t]}(${MAP_LAYER_NAMES[top.li]})` : '';
+        this._hudText.setText(`${tx},${ty}${under}  ${this.cameras.main.zoom.toFixed(2)}x  [${MAP_LAYER_NAMES[this.activeLayer].toUpperCase()}·${VIS_NAMES[this.activeVis]}]`);
       } else {
         this.hoverGfx.clear();
         this._hudText.setText('');
       }
 
       if (this._isPainting && ptr.isDown && ptr.x > this.SIDEBAR_W) {
-        this._applyTile(ptr, this.activeTool === 'erase' ? this._eraseValue() : this.selectedTile);
+        this._applyTile(ptr, this._strokeValue);
       }
     });
 
@@ -793,6 +835,42 @@ class EditorScene extends Phaser.Scene {
     this.input.keyboard.on('keydown-FOUR',  () => this._setVis(VIS.MERGED));
     this.input.keyboard.on('keydown-Q',
       () => this._setLayer((this.activeLayer + 1) % MAP_LAYER_COUNT));
+
+    this.input.keyboard.on('keydown-B', () => this._setTool('paint'));
+    this.input.keyboard.on('keydown-F', () => this._setTool('fill'));
+    this.input.keyboard.on('keydown-X', () => this._setTool('erase'));
+    this.input.keyboard.on('keydown-V', () => this._setTool('select'));
+    this.input.keyboard.on('keydown-G', () => this.gridGfx.setVisible(!this.gridGfx.visible));
+  }
+
+  _setTool(toolKey) {
+    if (this.activeTool === toolKey || this._isPainting) return;
+    this.activeTool = toolKey;
+    this._updateToolButtons();
+    if (toolKey !== 'select') this._clearSelection();
+  }
+
+  // Eyedropper: adopt the topmost tile at the cell as the palette selection,
+  // along with its layer and visibility tag.
+  _eyedrop(tx, ty) {
+    const top = this._topTileAt(tx, ty);
+    if (!top) return;
+    this.selectedTile = top.t;
+    this._updatePaletteHighlight();
+    this._setLayer(top.li);
+    this._setVis(this.mapLayers[top.li].vis[ty][tx]);
+    this._updateInspector();
+    this._showToast(`Picked ${TILE_NAMES[top.t]} (${MAP_LAYER_NAMES[top.li]})`);
+  }
+
+  // Topmost non-empty layer at a cell, or null
+  _topTileAt(tx, ty) {
+    if (tx < 0 || ty < 0 || tx >= WORLD_W || ty >= WORLD_H) return null;
+    for (let li = MAP_LAYER_COUNT - 1; li >= 0; li--) {
+      const t = this.mapLayers[li].tiles[ty][tx];
+      if (t !== NO_TILE) return { li, t };
+    }
+    return null;
   }
 
   // ── Tile painting ─────────────────────────────────────────────────────────────
@@ -981,6 +1059,18 @@ class EditorScene extends Phaser.Scene {
     };
 
     input.click();
+  }
+
+  _exportMap() {
+    const blob = new Blob(
+      [JSON.stringify({ version: 3, layers: this.mapLayers })],
+      { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'splitworld-map.json';
+    a.click();
+    URL.revokeObjectURL(a.href);
+    this._showToast('Map exported');
   }
 
   _parseTiledOrRaw(json) {
