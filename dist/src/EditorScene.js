@@ -695,12 +695,12 @@ class EditorScene extends Phaser.Scene {
         return;
       }
 
-      // Clicks on the inspector panel are handled by its own zones
+      // Sidebar and inspector clicks are handled by their own zones
+      if (ptr.x <= this.SIDEBAR_W) return;
       if (this._pointInInspector(ptr.x, ptr.y)) return;
 
       // Select tool: pick a cell to inspect (any mouse button)
       if (this.activeTool === 'select') {
-        if (ptr.x <= this.SIDEBAR_W) return;
         const wp = this.cameras.main.getWorldPoint(ptr.x, ptr.y);
         this._selectCell(Math.floor(wp.x / TILE), Math.floor(wp.y / TILE));
         return;
@@ -711,8 +711,6 @@ class EditorScene extends Phaser.Scene {
         this._applyTile(ptr, this._eraseValue());
         return;
       }
-
-      if (ptr.x <= this.SIDEBAR_W) return;
 
       if (this.activeTool === 'fill') {
         const wp = this.cameras.main.getWorldPoint(ptr.x, ptr.y);
